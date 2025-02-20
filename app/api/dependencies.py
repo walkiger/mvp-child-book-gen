@@ -15,6 +15,8 @@ from app.database import models
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+ALGORITHM = "HS256"  # Added missing ALGORITHM definition
+
 def get_db():
     """
     Dependency that provides a database session.
@@ -52,6 +54,7 @@ def get_current_user(
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
+        # Removed TokenData usage since it's unnecessary
     except JWTError:
         raise credentials_exception
 
