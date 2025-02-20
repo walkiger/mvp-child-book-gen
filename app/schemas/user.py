@@ -1,3 +1,5 @@
+# app/schemas/user.py
+
 """
 Pydantic models (schemas) for user operations.
 """
@@ -5,7 +7,7 @@ Pydantic models (schemas) for user operations.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -54,8 +56,7 @@ class UserResponse(UserBase):
     country: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PasswordChange(BaseModel):
@@ -90,8 +91,7 @@ class UserPublic(BaseModel):
     last_name: str
     avatar_url: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LoginRequest(BaseModel):
