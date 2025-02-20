@@ -4,6 +4,7 @@
 Application configuration using Pydantic's BaseSettings.
 """
 
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
 
     # Database configuration
     DATABASE_NAME: str = 'storybook.db'
-    DATABASE_DIR: str = ''
+    DATABASE_DIR: str = ''  # If empty, defaults to project root directory
 
     # Google OAuth2 Configuration
     GOOGLE_CLIENT_ID: str
@@ -45,6 +46,25 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
     }
+
+    @property
+    def DATABASE_PATH(self) -> str:
+        """
+        Construct the full path to the database file using os.path.
+        """
+        if self.DATABASE_DIR:
+            # Use the provided directory from settings
+            base_dir = self.DATABASE_DIR
+        else:
+            # Use the project's root directory
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+        # Ensure the base directory exists
+        os.makedirs(base_dir, exist_ok=True)
+
+        # Construct the full database path
+        database_path = os.path.join(base_dir, self.DATABASE_NAME)
+        return database_path
 
 
 # Instantiate the settings object
