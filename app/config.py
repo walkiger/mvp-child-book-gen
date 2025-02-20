@@ -1,8 +1,10 @@
+# app/config.py
+
 """
 Application configuration using Pydantic's BaseSettings.
 """
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -39,9 +41,10 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str
     TWILIO_VERIFY_SERVICE_SID: str
 
-    class Config:
-        """Pydantic configuration class."""
-        env_file = '.env'
+    # Update configuration for Pydantic v2.x
+    model_config = {
+        "env_file": ".env",
+    }
 
 
 # Instantiate the settings object
