@@ -16,13 +16,11 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import List, Optional
-from app.database.engine import SessionLocal
+from typing import List
 from app.database import models
 from app.schemas import user as schemas
-from app.api.auth import get_current_user, authenticate_user
+from app.api.dependencies import get_current_user, get_db
 from app.database.utils import hash_password, verify_password
-from app.api.auth import get_db  # Reuse the get_db dependency
 from PIL import Image
 import io
 
@@ -30,17 +28,6 @@ router = APIRouter(
     prefix="/users",
     tags=["users"],
 )
-
-
-def get_db():
-    """
-    Dependency that provides a database session.
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -76,9 +63,9 @@ def update_profile(
     Returns:
         UserResponse: The updated user profile.
     """
-    update_data = user_update.dict(exclude_unset=True)
+    update_data = user_update.model_dump(exclude_unset=True)  # Changed from dict() to model_dump()
 
-    # Prevent updating email and username here to avoid conflicts
+    # Prevent updating email, username, and password here to avoid conflicts
     forbidden_fields = {"email", "username", "password"}
     if forbidden_fields.intersection(update_data.keys()):
         raise HTTPException(
@@ -202,7 +189,6 @@ def list_users(
     Returns:
         List[UserPublic]: A list of users' public profiles.
     """
-    # Implement access control if necessary
     users = db.query(models.User).all()
     return users
 
