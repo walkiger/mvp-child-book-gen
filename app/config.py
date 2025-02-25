@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Secret key for application security
     SECRET_KEY: str
 
+    # openAI api key
+    OPENAI_API_KEY: str
+
     # Database configuration
     DATABASE_NAME: str = 'storybook.db'
     DATABASE_DIR: str = ''  # If empty, defaults to project root directory
