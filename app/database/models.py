@@ -86,7 +86,7 @@ class Character(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship('User', back_populates='characters')
-    story_characters = relationship('StoryCharacter', back_populates='character')
+    stories = relationship("Story", back_populates="character")
 
 
 class Story(Base):
@@ -109,25 +109,10 @@ class Story(Base):
 
     user = relationship('User', back_populates='stories')
     images = relationship('Image', back_populates='story')
-    story_characters = relationship('StoryCharacter', back_populates='story')
-
-
-class StoryCharacter(Base):
-    __tablename__ = 'story_characters'
-
-    story_id = Column(
-        Integer,
-        ForeignKey('stories.id'),
-        primary_key=True,
-    )
-    character_id = Column(
-        Integer,
-        ForeignKey('characters.id'),
-        primary_key=True,
-    )
-
-    story = relationship('Story', back_populates='story_characters')
-    character = relationship('Character', back_populates='story_characters')
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    character = relationship("Character", back_populates="stories")
+    moral_lesson = Column(String, nullable=True)
+    story_tone = Column(String, nullable=False, default="whimsical")
 
 
 class Image(Base):
