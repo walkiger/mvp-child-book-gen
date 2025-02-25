@@ -123,6 +123,9 @@ class Story(Base):
     moral_lesson = Column(String, nullable=True)
     story_tone = Column(String, nullable=False, default="whimsical")
 
+    plan_used = Column(String, nullable=False, default="free")
+    constraints = Column(JSON, nullable=False, server_default='{}')
+
 
 class Image(Base):
     __tablename__ = 'images'
