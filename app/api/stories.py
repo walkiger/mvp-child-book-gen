@@ -46,6 +46,8 @@ async def generate_story(
     - Max 10 pages (locations) per story
     - No generated images - subject to change
     """
+    openai.api_key = settings.OPENAI_API_KEY
+
     # Get free plan constraints
     free_plan = get_free_plan(db)
 
