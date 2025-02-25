@@ -105,6 +105,15 @@ class Story(Base):
             "age_group IN ('1-2', '3-5', '6-8', '9-12')",
             name='valid_age_groups',
         ),
+        CheckConstraint(
+            # Allow NULL or specific values
+            "moral_lesson IN ('kindness', 'courage', 'friendship', 'honesty', 'perseverance') OR moral_lesson IS NULL",
+            name='valid_moral_lessons'
+        ),
+        CheckConstraint(
+            "story_tone IN ('whimsical', 'educational', 'adventurous', 'calming')",
+            name='valid_story_tones'
+        )
     )
 
     user = relationship('User', back_populates='stories')
@@ -160,9 +169,6 @@ class Subscription(Base):
     current_period_end = Column(DateTime)
     stripe_subscription_id = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship('User', back_populates='subscriptions')
-    plan = relationship('SubscriptionPlan')
 
 
 class Payment(Base):
