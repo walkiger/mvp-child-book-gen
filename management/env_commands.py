@@ -14,6 +14,7 @@ import logging
 import re
 import datetime
 import importlib.util
+import shutil
 
 from utils.error_handling import ConfigError, ErrorSeverity, BaseError, handle_error, setup_logger
 from .errors import ProcessError, with_error_handling
@@ -48,15 +49,87 @@ def read_env_variables():
     return env_vars
 
 def write_env_file(env_vars):
-    """Write environment variables to .env file"""
+    """Write environment variables to .env file with organized sections and comments"""
+    # Create a copy of the dictionary to avoid modifying the original
+    env_copy = env_vars.copy()
+
     with open(ENV_FILE, 'w') as f:
         f.write("# Environment variables for Child Book Generator MVP\n\n")
         
-        for key, value in env_vars.items():
-            f.write(f"{key}={value}\n")
+        # OpenAI API Configuration section
+        f.write("# OpenAI API Configuration\n")
+        if 'OPENAI_API_KEY' in env_copy:
+            f.write(f"OPENAI_API_KEY={env_copy['OPENAI_API_KEY']}\n")
+            f.write("# Get your API key from https://platform.openai.com/api-keys\n\n")
+        
+        # Application Security section
+        f.write("# Application Security\n")
+        if 'SECRET_KEY' in env_copy:
+            f.write(f"SECRET_KEY={env_copy['SECRET_KEY']}\n")
+            f.write("# Use a strong, unique secret key for security\n")
+        if 'ALGORITHM' in env_copy:
+            f.write(f"ALGORITHM={env_copy['ALGORITHM']}\n")
+        if 'ACCESS_TOKEN_EXPIRE_MINUTES' in env_copy:
+            f.write(f"ACCESS_TOKEN_EXPIRE_MINUTES={env_copy['ACCESS_TOKEN_EXPIRE_MINUTES']}\n")
+        f.write("\n")
+        
+        # Database Configuration section
+        f.write("# Database Configuration\n")
+        if 'DATABASE_NAME' in env_copy:
+            f.write(f"DATABASE_NAME={env_copy['DATABASE_NAME']}\n")
+        if 'DATABASE_DIR' in env_copy:
+            f.write(f"DATABASE_DIR={env_copy['DATABASE_DIR']}\n")
+        if 'DATABASE_URL' in env_copy:
+            f.write(f"DATABASE_URL={env_copy['DATABASE_URL']}\n")
+        f.write("\n")
+        
+        # CORS Configuration section
+        f.write("# CORS Configuration\n")
+        if 'ALLOWED_ORIGINS' in env_copy:
+            f.write(f"ALLOWED_ORIGINS={env_copy['ALLOWED_ORIGINS']}\n")
+        f.write("\n")
+        
+        # File Storage section
+        f.write("# File Storage\n")
+        if 'UPLOAD_DIR' in env_copy:
+            f.write(f"UPLOAD_DIR={env_copy['UPLOAD_DIR']}\n")
+        if 'MAX_UPLOAD_SIZE' in env_copy:
+            f.write(f"MAX_UPLOAD_SIZE={env_copy['MAX_UPLOAD_SIZE']}  # 5MB in bytes\n")
+        f.write("\n")
+        
+        # Rate Limiting section
+        f.write("# Rate Limiting\n")
+        if 'CHAT_RATE_LIMIT_PER_MINUTE' in env_copy:
+            f.write(f"CHAT_RATE_LIMIT_PER_MINUTE={env_copy['CHAT_RATE_LIMIT_PER_MINUTE']}\n")
+        if 'IMAGE_RATE_LIMIT_PER_MINUTE' in env_copy:
+            f.write(f"IMAGE_RATE_LIMIT_PER_MINUTE={env_copy['IMAGE_RATE_LIMIT_PER_MINUTE']}\n")
+        if 'TOKEN_LIMIT_PER_MINUTE' in env_copy:
+            f.write(f"TOKEN_LIMIT_PER_MINUTE={env_copy['TOKEN_LIMIT_PER_MINUTE']}\n")
+        f.write("\n")
+        
+        # Other Settings section
+        f.write("# Other Settings\n")
+        if 'DALLE_DEFAULT_VERSION' in env_copy:
+            f.write(f"DALLE_DEFAULT_VERSION={env_copy['DALLE_DEFAULT_VERSION']}\n")
+        if 'LOG_LEVEL' in env_copy:
+            f.write(f"LOG_LEVEL={env_copy['LOG_LEVEL']}\n")
+        f.write("\n")
+        
+        # Any remaining variables
+        remaining_keys = set(env_copy.keys()) - {
+            'OPENAI_API_KEY', 'SECRET_KEY', 'ALGORITHM', 'ACCESS_TOKEN_EXPIRE_MINUTES',
+            'DATABASE_NAME', 'DATABASE_DIR', 'DATABASE_URL', 'ALLOWED_ORIGINS',
+            'UPLOAD_DIR', 'MAX_UPLOAD_SIZE', 'CHAT_RATE_LIMIT_PER_MINUTE',
+            'IMAGE_RATE_LIMIT_PER_MINUTE', 'TOKEN_LIMIT_PER_MINUTE',
+            'DALLE_DEFAULT_VERSION', 'LOG_LEVEL'
+        }
+        
+        if remaining_keys:
+            f.write("# Additional Settings\n")
+            for key in remaining_keys:
+                f.write(f"{key}={env_copy[key]}\n")
     
     logger.info(f"Environment variables saved to {ENV_FILE}")
-    print(f"\nEnvironment variables saved to {ENV_FILE}")
 
 def get_required_variables():
     """List of required environment variables with descriptions"""
@@ -73,27 +146,128 @@ def get_optional_variables():
         'FRONTEND_URL': 'URL of the frontend (for CORS settings)',
     }
 
+@with_error_handling(context="auto_setup_environment")
+def auto_setup_environment():
+    """Setup environment variables automatically without user interaction"""
+    print("Child Book Generator MVP - Automatic Environment Setup\n")
+    
+    # Check if .env already exists
+    env_exists, env_path = check_env_file()
+    if env_exists:
+        print(f".env file already exists at {env_path.absolute()}")
+        print("Using existing environment configuration.")
+        print("To create a new .env file, delete the existing one first.")
+        return read_env_variables()
+    
+    # Create a fresh .env file with default placeholder values
+    print("Creating new .env file with default values...")
+    default_env = {
+        # OpenAI API Configuration
+        'OPENAI_API_KEY': 'your-openai-api-key-here',
+        
+        # Application Security
+        'SECRET_KEY': 'your-secure-secret-key-here',
+        'ALGORITHM': 'HS256',
+        'ACCESS_TOKEN_EXPIRE_MINUTES': '30',
+        
+        # Database Configuration
+        'DATABASE_NAME': 'storybook.db',
+        'DATABASE_DIR': '',
+        
+        # CORS Configuration
+        'ALLOWED_ORIGINS': 'http://localhost:3000,http://localhost:5173,http://localhost:3001',
+        
+        # File Storage
+        'UPLOAD_DIR': 'uploads',
+        'MAX_UPLOAD_SIZE': '5242880',  # 5MB in bytes
+        
+        # Rate Limiting
+        'CHAT_RATE_LIMIT_PER_MINUTE': '5',
+        'IMAGE_RATE_LIMIT_PER_MINUTE': '3',
+        'TOKEN_LIMIT_PER_MINUTE': '20000',
+        
+        # Other Settings
+        'DALLE_DEFAULT_VERSION': 'dall-e-3',
+        'LOG_LEVEL': 'DEBUG',
+    }
+    
+    # Write the environment file
+    write_env_file(default_env)
+    
+    logger.info("Environment variables automatically set up")
+    print("Environment variables automatically set up")
+    print("\nNOTE: The .env file has been created with placeholder values for sensitive data.")
+    print("      Please update the OPENAI_API_KEY and SECRET_KEY with your actual values before using the application.")
+    return default_env
+
 @with_error_handling(context="setup_environment")
-def setup_environment():
-    """Setup environment variables interactively"""
+def setup_environment(auto_mode=False):
+    """Setup environment variables interactively or automatically"""
+    if auto_mode:
+        # In auto mode, check existing .env file but don't overwrite it
+        env_exists, env_path = check_env_file()
+        if env_exists:
+            print("Setting up environment variables in automatic mode")
+            print(f"Found existing .env file at {env_path.absolute()}")
+            print("Using existing environment configuration.")
+            print("To create a new .env file, delete the existing one first.")
+            return read_env_variables()
+        else:
+            print("Setting up environment variables in automatic mode")
+            print("No existing .env file found. Creating one with default values.")
+            return auto_setup_environment()
+        
     print("Child Book Generator MVP - Environment Setup\n")
     
     # Read existing environment variables
     env_vars = read_env_variables()
     env_exists, _ = check_env_file()
     
-    if env_exists:
-        print(f"Found existing {ENV_FILE} file with the following variables:")
-        for key in env_vars:
-            value = env_vars[key]
-            masked_value = value[:3] + '*' * (len(value) - 3) if len(value) > 3 else '***'
-            print(f"  - {key}={masked_value}")
+    if not env_exists:
+        # If no .env file exists, create it automatically
+        print("No .env file found. Creating with default values.")
+        return auto_setup_environment()
         
-        update = input("\nDo you want to update these variables? (y/n): ").strip().lower()
-        if update != 'y':
-            print("Keeping existing environment variables.")
-            return
+    # If an .env file exists, show its contents and ask if the user wants to update it
+    print(f"Found existing {ENV_FILE} file with the following variables:")
+    for key in env_vars:
+        value = env_vars[key]
+        # Mask sensitive data
+        if key in ['OPENAI_API_KEY', 'SECRET_KEY'] and len(value) > 3:
+            masked_value = value[:3] + '*' * (len(value) - 3)
+        else:
+            masked_value = value
+        print(f"  - {key}={masked_value}")
     
+    # Ask user if they want to update the existing variables
+    update = input("\nDo you want to update these variables? (y/n): ").strip().lower()
+    if update != 'y':
+        print("Keeping existing environment variables.")
+        return env_vars
+        
+    # Ask if the user wants to start fresh (auto setup) or update existing values
+    fresh_start = input("\nDo you want to start with a fresh configuration? (y/n): ").strip().lower()
+    if fresh_start == 'y':
+        print("Starting with fresh default configuration.")
+        # Here we'll handle the special case of explicitly asking for a fresh start
+        # First backup the old .env file
+        backup_path = f"{ENV_FILE}.bak"
+        print(f"Backing up existing {ENV_FILE} to {backup_path}")
+        try:
+            shutil.copy2(ENV_FILE, backup_path)
+        except Exception as e:
+            print(f"Warning: Could not create backup: {str(e)}")
+        
+        # Then remove the existing file to allow auto_setup_environment to create a new one
+        try:
+            os.remove(ENV_FILE)
+        except Exception as e:
+            print(f"Error: Could not remove existing {ENV_FILE}: {str(e)}")
+            return env_vars
+        
+        return auto_setup_environment()
+    
+    # Update the existing variables interactively
     # Required variables
     print("\nSetting up required environment variables:")
     required_vars = get_required_variables()
@@ -146,6 +320,7 @@ def setup_environment():
     # Write to .env file
     write_env_file(env_vars)
     print("Environment setup complete!")
+    return env_vars
 
 @with_error_handling(context="show_current_env")
 def show_current_env():
