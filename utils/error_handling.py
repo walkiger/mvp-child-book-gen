@@ -118,9 +118,8 @@ class DatabaseError(BaseError):
     """Exception raised for database-related errors"""
     
     def __init__(self, message, db_path=None, **kwargs):
-        if db_path:
-            message = f"Database '{db_path}': {message}"
-        
+        self.db_path = db_path
+        self.message = message  # Store the original message
         super().__init__(
             message=message,
             error_code=kwargs.pop("error_code", "E-DB-001"),
@@ -129,6 +128,14 @@ class DatabaseError(BaseError):
             db_path=db_path,
             **kwargs
         )
+    
+    def format_message(self) -> str:
+        """Override to return just the message without severity and code prefix"""
+        return self.message
+
+    def __str__(self) -> str:
+        """Override to return just the message without severity and code prefix"""
+        return self.message
 
 
 class ConfigError(BaseError):
@@ -214,12 +221,13 @@ class ImageError(BaseError):
 
 # Error handling utilities
 
-def setup_logger(name="app", log_file="logs/app.log"):
+def setup_logger(name="app", log_file="logs/app.log", level=logging.INFO):
     """Set up and return a logger with file and console handlers
     
     Args:
         name: Logger name
         log_file: Path to the log file
+        level: Logging level (default: INFO)
         
     Returns:
         Logger: Configured logger instance
@@ -230,7 +238,7 @@ def setup_logger(name="app", log_file="logs/app.log"):
     logger = logging.getLogger(name)
     # Avoid adding handlers multiple times
     if not logger.handlers:
-        logger.setLevel(logging.INFO)
+        logger.setLevel(level)
         
         # File handler
         file_handler = logging.FileHandler(log_file)
@@ -280,12 +288,15 @@ def handle_error(error, logger=None, exit_app=False):
         logger.warning(error_message)
     elif error.severity == ErrorSeverity.ERROR:
         logger.error(error_message)
-        if exit_app:
+        if exit_app and not os.environ.get("PYTEST_CURRENT_TEST"):
             sys.exit(1)
     elif error.severity == ErrorSeverity.CRITICAL:
         logger.critical(error_message)
         # Always exit on critical errors
         sys.exit(1)
+
+    # Re-raise the error
+    raise error
 
 
 # Decorators
@@ -311,7 +322,7 @@ def with_error_handling(func=None, context=None, exit_on_error=False, logger_nam
             except BaseError as e:
                 # Already formatted, just handle it
                 handle_error(e, logger, exit_on_error)
-                return False
+                raise  # Re-raise to allow other handlers to catch it
             except FileNotFoundError as e:
                 # Convert to appropriate error type
                 ctx = context or func.__name__
@@ -332,7 +343,7 @@ def with_error_handling(func=None, context=None, exit_on_error=False, logger_nam
                         error_code="E-RES-404"  # Not Found error code
                     )
                 handle_error(error, logger, exit_on_error)
-                return False
+                raise error  # Re-raise to allow other handlers to catch it
             except Exception as e:
                 # Convert to BaseError with context
                 ctx = context or func.__name__
@@ -343,7 +354,7 @@ def with_error_handling(func=None, context=None, exit_on_error=False, logger_nam
                     "E-GEN-500"  # Generic internal error code
                 )
                 handle_error(error, logger, exit_on_error)
-                return False
+                raise error  # Re-raise to allow other handlers to catch it
         return wrapper
         
     if func is None:

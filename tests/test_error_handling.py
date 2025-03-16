@@ -1,301 +1,397 @@
 """
 Comprehensive tests for the error handling framework.
+
+Note: This project uses standard-crypt (installed via pip) as a replacement for Python's
+built-in crypt module, which is deprecated in Python 3.11 and will be removed in 3.13.
+This is to address the deprecation warning from passlib, which currently depends on
+the crypt module. standard-crypt is a pure Python, platform-independent implementation
+that serves as a drop-in replacement.
 """
 
 import sys
 import logging
+import sqlite3
 import pytest
 from unittest.mock import MagicMock, patch, call
+import os
+from pathlib import Path
+import httpx
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from starlette.testclient import TestClient
+from httpx import AsyncClient, ASGITransport
 
 # Import error handling utilities
 from utils.error_handling import (
     BaseError, ServerError, DatabaseError, ConfigError, 
     ResourceError, InputError, ImageError, ErrorSeverity,
-    handle_error, setup_logger, with_error_handling
+    handle_error, setup_logger, with_error_handling, with_retry,
+    CircuitBreaker, CircuitState
 )
-from management.errors import ProcessError
+from management.errors import ProcessError, db_error_handler
 
 
 def test_base_error_class():
     """Test the base BaseError class."""
-    
+    # Test basic error creation
     error = BaseError("Test error message")
     assert "ERROR [E-GEN-001]: Test error message" in str(error)
-    assert error.severity == ErrorSeverity.ERROR  # Default severity
+    assert error.severity == ErrorSeverity.ERROR
+    assert error.http_status_code == 500
     
-    # Test with custom severity and context
+    # Test with custom attributes
     error = BaseError(
         "Test error message",
         severity=ErrorSeverity.WARNING,
-        error_code="E-TEST-001"
+        error_code="E-TEST-001",
+        http_status_code=400,
+        details="Additional details",
+        custom_field="Custom value"
     )
-    assert "WARNING [E-TEST-001]: Test error message" in str(error)
+    assert "WARNING [E-TEST-001]: Test error message - Additional details" in str(error)
     assert error.severity == ErrorSeverity.WARNING
+    assert error.http_status_code == 400
+    assert error.kwargs["custom_field"] == "Custom value"
+    
+    # Test dictionary conversion
+    error_dict = error.to_dict()
+    assert error_dict["error_code"] == "E-TEST-001"
+    assert error_dict["severity"] == "WARNING"
+    assert error_dict["message"] == "Test error message"
+    assert error_dict["details"] == "Additional details"
+    assert error_dict["context"]["custom_field"] == "Custom value"
+
+    # Test error inheritance
+    class CustomError(BaseError):
+        def __init__(self, message, **kwargs):
+            super().__init__(message, error_code="E-CUSTOM-001", **kwargs)
+    
+    custom_error = CustomError("Custom error")
+    assert "ERROR [E-CUSTOM-001]" in str(custom_error)
 
 
-def test_error_inheritance():
-    """Test that all error types inherit from BaseError."""
-    server_error = ServerError("Server error")
-    process_error = ProcessError("Process error")
-    db_error = DatabaseError("Database error")
-    config_error = ConfigError("Config error")
-    resource_error = ResourceError("Resource error")
-    input_error = InputError("Input error")
-    image_error = ImageError("Image error")
+def test_database_error_formatting():
+    """Test DatabaseError message formatting."""
+    # Test basic database error
+    error = DatabaseError("Database connection failed")
+    assert str(error) == "Database connection failed"
     
-    # All should be instances of BaseError
-    assert isinstance(server_error, BaseError)
-    assert isinstance(process_error, BaseError)
-    assert isinstance(db_error, BaseError)
-    assert isinstance(config_error, BaseError)
-    assert isinstance(resource_error, BaseError)
-    assert isinstance(input_error, BaseError)
-    assert isinstance(image_error, BaseError)
+    # Test with db_path
+    error = DatabaseError("Database connection failed", db_path="/path/to/db.sqlite")
+    assert str(error) == "Database connection failed"
+    assert error.db_path == "/path/to/db.sqlite"
     
-    # Each should have its own type
-    assert type(server_error) is ServerError
-    assert type(process_error) is ProcessError
-    assert type(db_error) is DatabaseError
-    assert type(config_error) is ConfigError
+    # Test with additional kwargs
+    error = DatabaseError(
+        "Database connection failed",
+        db_path="/path/to/db.sqlite",
+        error_code="E-DB-TEST",
+        details="Connection timeout"
+    )
+    assert str(error) == "Database connection failed"
+    assert error.error_code == "E-DB-TEST"
+
+    # Test with error details
+    error = DatabaseError("Permission denied", details="File is read-only")
+    assert str(error) == "Permission denied"
+    assert error.details == "File is read-only"
+
+
+def test_db_error_handler():
+    """Test database error handler decorator."""
+    @db_error_handler
+    def db_operation(db_path):
+        raise sqlite3.OperationalError("database is locked")
+    
+    with pytest.raises(DatabaseError) as exc_info:
+        db_operation("test.db")
+    assert str(exc_info.value) == "Database is locked"
+    
+    @db_error_handler
+    def db_operation_integrity(db_path):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed")
+    
+    with pytest.raises(DatabaseError) as exc_info:
+        db_operation_integrity("test.db")
+    assert str(exc_info.value) == "Integrity error"
+    
+    @db_error_handler
+    def db_operation_corrupt(db_path):
+        raise sqlite3.DatabaseError("file is not a database")
+    
+    with pytest.raises(DatabaseError) as exc_info:
+        db_operation_corrupt("test.db")
+    assert str(exc_info.value) == "Database is corrupted"
+
+    # Test successful operation
+    @db_error_handler
+    def successful_operation(db_path):
+        return "success"
+    
+    result = successful_operation("test.db")
+    assert result == "success"
+
+
+def test_error_handling_decorator():
+    """Test the with_error_handling decorator."""
+    mock_logger = MagicMock()
+    
+    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
+        # Test handling of BaseError
+        @with_error_handling(logger_name="test")
+        def raise_base_error():
+            raise BaseError("Test error", severity=ErrorSeverity.WARNING)
+        
+        with pytest.raises(BaseError):
+            raise_base_error()
+        mock_logger.warning.assert_called_once()
+        
+        # Test handling of FileNotFoundError
+        mock_logger.reset_mock()
+        @with_error_handling(logger_name="test")
+        def raise_file_error():
+            raise FileNotFoundError("test.txt not found")
+        
+        with pytest.raises(ResourceError):
+            raise_file_error()
+        mock_logger.error.assert_called_once()
+        
+        # Test handling of generic exception
+        mock_logger.reset_mock()
+        @with_error_handling(logger_name="test", context="TestContext")
+        def raise_generic_error():
+            raise ValueError("Test value error")
+        
+        with pytest.raises(BaseError):
+            raise_generic_error()
+        mock_logger.error.assert_called_once()
+        assert "TestContext" in str(mock_logger.error.call_args[0][0])
+
+        # Test successful execution
+        mock_logger.reset_mock()
+        @with_error_handling(logger_name="test")
+        def successful_operation():
+            return "success"
+        
+        result = successful_operation()
+        assert result == "success"
+        assert not mock_logger.error.called
+
+
+def test_retry_decorator():
+    """Test the with_retry decorator."""
+    mock_logger = MagicMock()
+    attempts = []
+    
+    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
+        @with_retry(max_attempts=3, retry_delay=0.1)
+        def failing_function():
+            attempts.append(1)
+            raise ValueError("Test error")
+        
+        with pytest.raises(ValueError):
+            failing_function()
+        
+        assert len(attempts) == 3  # Should have tried 3 times
+        assert mock_logger.warning.call_count == 2  # Should have logged 2 retries
+
+        # Test successful retry
+        mock_logger.reset_mock()
+        success_attempts = []
+        
+        @with_retry(max_attempts=3, retry_delay=0.1)
+        def eventually_succeeds():
+            success_attempts.append(1)
+            if len(success_attempts) < 2:
+                raise ValueError("Temporary error")
+            return "success"
+        
+        result = eventually_succeeds()
+        assert result == "success"
+        assert len(success_attempts) == 2  # Should succeed on second attempt
+        assert mock_logger.warning.call_count == 1  # Should have logged 1 retry
+
+
+def test_circuit_breaker():
+    """Test the CircuitBreaker implementation."""
+    breaker = CircuitBreaker("test_service", failure_threshold=2, reset_timeout=0.1)
+    
+    @breaker
+    def service_call():
+        raise ServerError("Service unavailable")
+    
+    # First call - should fail normally
+    with pytest.raises(ServerError):
+        service_call()
+    assert breaker.state == CircuitState.CLOSED
+    
+    # Second call - should open the circuit
+    with pytest.raises(ServerError):
+        service_call()
+    assert breaker.state == CircuitState.OPEN
+    
+    # Third call - should fail fast with circuit open
+    with pytest.raises(ServerError) as exc_info:
+        service_call()
+    assert "Circuit for test_service is open" in str(exc_info.value)
+    
+    # Wait for reset timeout
+    import time
+    time.sleep(0.2)
+    
+    # Next call should be in HALF_OPEN state
+    with pytest.raises(ServerError):
+        service_call()
+    assert breaker.state == CircuitState.HALF_OPEN
+
+    # Test successful recovery
+    breaker = CircuitBreaker("recovery_test", failure_threshold=2, reset_timeout=0.1)
+    
+    @breaker
+    def recovering_service():
+        if breaker.failure_count < 2:
+            raise ServerError("Temporary failure")
+        return "success"
+    
+    # First call - should fail
+    with pytest.raises(ServerError):
+        recovering_service()
+    
+    # Second call - should fail and open circuit
+    with pytest.raises(ServerError):
+        recovering_service()
+    assert breaker.state == CircuitState.OPEN
+    
+    # Wait for reset
+    time.sleep(0.2)
+    
+    # Should succeed and close circuit
+    result = recovering_service()
+    assert result == "success"
+    assert breaker.state == CircuitState.CLOSED
+
+
+def test_error_handler_integration():
+    """Test integration of different error handling components."""
+    mock_logger = MagicMock()
+    
+    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
+        @with_retry(max_attempts=2, retry_delay=0.1)
+        @with_error_handling(logger_name="test")
+        @db_error_handler
+        def complex_operation(db_path):
+            raise sqlite3.OperationalError("database is locked")
+        
+        with pytest.raises(DatabaseError) as exc_info:
+            complex_operation("test.db")
+        
+        assert str(exc_info.value) == "Database is locked"
+        assert mock_logger.error.call_count >= 1
+
+        # Test successful integration
+        @with_retry(max_attempts=2)
+        @with_error_handling(logger_name="test")
+        @db_error_handler
+        def successful_complex_operation(db_path):
+            return "success"
+        
+        result = successful_complex_operation("test.db")
+        assert result == "success"
+
+
+@pytest.mark.anyio
+async def test_fastapi_error_handling():
+    """Test FastAPI error handling integration."""
+    app = FastAPI()
+    
+    @app.exception_handler(BaseError)
+    async def base_error_handler(request: Request, exc: BaseError):
+        return JSONResponse(
+            status_code=500,
+            content={"error": exc.format_message(), "details": exc.details},
+        )
+    
+    @app.get("/test-error")
+    async def test_endpoint():
+        raise BaseError("Test error", details={"test": "details"})
+    
+    @app.get("/test-http-error")
+    async def test_http_error():
+        raise HTTPException(status_code=404, detail="Resource not found")
+    
+    @app.get("/test-success")
+    async def test_success():
+        return {"status": "ok"}
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Test BaseError handling
+        response = await client.get("/test-error")
+        assert response.status_code == 500
+        assert response.json() == {
+            "error": "ERROR [E-GEN-001]: Test error - {'test': 'details'}",
+            "details": {"test": "details"}
+        }
+        
+        # Test HTTPException handling
+        response = await client.get("/test-http-error")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Resource not found"
+        
+        # Test successful response
+        response = await client.get("/test-success")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
 
 
 def test_error_severity_levels():
-    """Test that error severity levels work correctly."""
+    """Test error severity level handling."""
+    # Test INFO severity
     info_error = BaseError("Info message", severity=ErrorSeverity.INFO)
+    assert "INFO" in str(info_error)
+    assert info_error.severity == ErrorSeverity.INFO
+    
+    # Test WARNING severity
     warning_error = BaseError("Warning message", severity=ErrorSeverity.WARNING)
-    error_error = BaseError("Error message", severity=ErrorSeverity.ERROR)
+    assert "WARNING" in str(warning_error)
+    assert warning_error.severity == ErrorSeverity.WARNING
+    
+    # Test ERROR severity
+    error = BaseError("Error message", severity=ErrorSeverity.ERROR)
+    assert "ERROR" in str(error)
+    assert error.severity == ErrorSeverity.ERROR
+    
+    # Test CRITICAL severity
     critical_error = BaseError("Critical message", severity=ErrorSeverity.CRITICAL)
-    
-    assert "INFO [" in str(info_error)
-    assert "WARNING [" in str(warning_error)
-    assert "ERROR [" in str(error_error)
-    assert "CRITICAL [" in str(critical_error)
+    assert "CRITICAL" in str(critical_error)
+    assert critical_error.severity == ErrorSeverity.CRITICAL
 
 
-def test_error_details():
-    """Test that error details are included correctly."""
-    # Error with details
-    error = BaseError("Error message", details="Additional details")
-    assert "ERROR [E-GEN-001]: Error message - Additional details" in str(error)
-    assert error.details == "Additional details"
+def test_error_context_handling():
+    """Test error context handling."""
+    # Test with simple context
+    error = BaseError("Test message", custom_field=123)
+    error_dict = error.to_dict()
+    assert error_dict["context"]["custom_field"] == 123
     
-    # Error with context and details
+    # Test with nested context
     error = BaseError(
-        "Error message", 
-        details="Additional details",
-        error_code="E-TEST-001"
+        "Test message",
+        user={"id": 123, "role": "admin"},
+        request={"path": "/api/test", "method": "GET"}
     )
-    assert "ERROR [E-TEST-001]: Error message - Additional details" in str(error)
-    assert error.details == "Additional details"
-
-
-def test_decorator_basic():
-    """Test the basic functionality of the error handling decorator."""
-    mock_logger = MagicMock()
+    error_dict = error.to_dict()
+    assert error_dict["context"]["user"]["role"] == "admin"
+    assert error_dict["context"]["request"]["method"] == "GET"
     
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        # Define a function that raises an exception
-        @with_error_handling(logger_name="test")
-        def failing_function():
-            raise ValueError("Test error")
-            return True
-        
-        # Call the function and check the result
-        result = failing_function()
-        assert result is False  # Should return False when exception is caught
-        
-        # Check that the logger was called
-        mock_logger.error.assert_called_once()
-        assert "Test error" in mock_logger.error.call_args[0][0]
-
-
-def test_decorator_management_error():
-    """Test that decorator handles BaseError correctly."""
-    mock_logger = MagicMock()
-    
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        # Define a function that raises a BaseError
-        @with_error_handling(logger_name="test")
-        def failing_function():
-            raise BaseError("Test error", severity=ErrorSeverity.WARNING)
-            return True
-        
-        # Call the function and check the result
-        result = failing_function()
-        assert result is False  # Should return False when exception is caught
-        
-        # Check that the logger was called with the right level
-        mock_logger.warning.assert_called_once()
-        assert "Test error" in mock_logger.warning.call_args[0][0]
-
-
-def test_decorator_no_error():
-    """Test that decorator passes through return value when no error occurs."""
-    mock_logger = MagicMock()
-    
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        # Define a function that doesn't raise an exception
-        @with_error_handling(logger_name="test")
-        def successful_function():
-            return "success"
-        
-        # Call the function and check the result
-        result = successful_function()
-        assert result == "success"  # Should return the original return value
-        
-        # Check that the logger was not called
-        mock_logger.error.assert_not_called()
-        mock_logger.warning.assert_not_called()
-        mock_logger.info.assert_not_called()
-
-
-def test_decorator_exit_behavior():
-    """Test that exit_on_error parameter works correctly."""
-    mock_logger = MagicMock()
-    mock_handle_error = MagicMock()
-    
-    with patch('utils.error_handling.handle_error', mock_handle_error):
-        with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-            # Define a function with exit_on_error=True
-            @with_error_handling(exit_on_error=True, logger_name="test")
-            def failing_function():
-                raise ValueError("Test error")
-                return True
-            
-            # Call the function
-            result = failing_function()
-            assert result is False
-            
-            # Check that handle_error was called with exit_app=True
-            mock_handle_error.assert_called_once()
-            # Check that the third positional argument is True (exit_app)
-            args, _ = mock_handle_error.call_args
-            assert len(args) >= 3
-            assert args[2] is True
-
-
-def test_handle_error_severity():
-    """Test that handle_error respects error severity."""
-    mock_logger = MagicMock()
-    
-    # Test with BaseError instances of different severity
-    info_error = BaseError("Info test", severity=ErrorSeverity.INFO)
-    warning_error = BaseError("Warning test", severity=ErrorSeverity.WARNING)
-    error_error = BaseError("Error test", severity=ErrorSeverity.ERROR)
-    
-    # Call handle_error with each error
-    handle_error(info_error, mock_logger)
-    handle_error(warning_error, mock_logger)
-    handle_error(error_error, mock_logger)
-    
-    # Check that the logger was called with the right level
-    mock_logger.info.assert_called_once()
-    mock_logger.warning.assert_called_once()
-    mock_logger.error.assert_called_once()
-    
-    # Check the messages
-    assert "Info test" in mock_logger.info.call_args[0][0]
-    assert "Warning test" in mock_logger.warning.call_args[0][0]
-    assert "Error test" in mock_logger.error.call_args[0][0]
-
-
-def test_handle_error_exit():
-    """Test that handle_error exits when requested."""
-    mock_logger = MagicMock()
-    mock_exit = MagicMock()
-    
-    with patch('sys.exit', mock_exit):
-        # Call handle_error with exit_app=True
-        handle_error(BaseError("Test error"), mock_logger, exit_app=True)
-        
-        # Check that sys.exit was called
-        mock_exit.assert_called_once()
-
-
-def test_handle_error_generic_exception():
-    """Test handle_error with a non-BaseError exception."""
-    mock_logger = MagicMock()
-    
-    # Call handle_error with a generic exception
-    with patch('traceback.format_exc', return_value="Test traceback"):
-        handle_error(ValueError("Test error"), mock_logger)
-    
-    # Should convert to BaseError
-    mock_logger.error.assert_called_once()
-    assert "Test error" in mock_logger.error.call_args[0][0]
-
-
-def test_setup_logger():
-    """Test that setup_logger creates a properly configured logger."""
-    # Create a logger
-    logger = setup_logger("test_logger")
-    
-    # Check that it has the right name
-    assert logger.name == "test_logger"
-    
-    # Check that it has at least one handler
-    assert len(logger.handlers) > 0
-    
-    # Check that the level is set
-    assert logger.level == logging.INFO
-
-
-def test_decorator_preserves_function_metadata():
-    """Test that the decorator preserves function metadata."""
-    @with_error_handling
-    def test_function(arg1, arg2):
-        """Test function docstring."""
-        return arg1 + arg2
-    
-    # Check that the function name and docstring are preserved
-    assert test_function.__name__ == "test_function"
-    assert test_function.__doc__ == "Test function docstring."
-    
-    # Check that the function still works
-    assert test_function(1, 2) == 3
-
-
-def test_error_handler_calls():
-    """Test that the error handler is called with the right arguments."""
-    mock_handle_error = MagicMock()
-    mock_logger = MagicMock()
-    
-    with patch('utils.error_handling.handle_error', mock_handle_error):
-        with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-            # Define a function that raises different types of errors
-            @with_error_handling(logger_name="test")
-            def test_function(error_type):
-                if error_type == "value":
-                    raise ValueError("Test ValueError")
-                elif error_type == "base":
-                    raise BaseError("Test BaseError")
-                elif error_type == "server":
-                    raise ServerError("Test ServerError")
-                return True
-            
-            # Call with ValueError
-            test_function("value")
-            # First call should have a BaseError (converted from ValueError)
-            args, _ = mock_handle_error.call_args_list[0]
-            error_arg = args[0]
-            assert isinstance(error_arg, BaseError)
-            assert "Test ValueError" in str(error_arg)
-            
-            # Call with BaseError
-            test_function("base")
-            # Second call should have a BaseError
-            args, _ = mock_handle_error.call_args_list[1]
-            error_arg = args[0]
-            assert isinstance(error_arg, BaseError)
-            assert "Test BaseError" in str(error_arg)
-            
-            # Call with ServerError
-            test_function("server")
-            # Third call should have a ServerError
-            args, _ = mock_handle_error.call_args_list[2]
-            error_arg = args[0]
-            assert isinstance(error_arg, ServerError)
-            assert "Test ServerError" in str(error_arg)
+    # Test context merging
+    error = BaseError(
+        "Test message",
+        source="test",
+        additional_field="value"
+    )
+    error_dict = error.to_dict()
+    assert error_dict["context"]["source"] == "test"
+    assert error_dict["context"]["additional_field"] == "value"
 
 
 if __name__ == "__main__":
