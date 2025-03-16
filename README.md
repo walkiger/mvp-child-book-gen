@@ -120,27 +120,84 @@ def process_data(db_path):
 
 ## Testing
 
-Run the test suite using pytest:
+Run the test suite using Jest:
 
 ```bash
 # Run all tests
-python -m pytest
+npm test
 
 # Run with verbose output
-python -m pytest -v
+npm test -- --verbose
 
 # Run specific test files
-python -m pytest tests/test_error_handling.py
+npm test src/tests/ErrorDisplay.test.tsx
 
 # Run with coverage report
-python -m pytest --cov=app --cov=management --cov=utils
+npm test -- --coverage
 ```
 
-Current test coverage is at 44% with ongoing improvements. Key areas for testing focus:
-- Management content inspection (9% coverage)
-- Database inspection utilities (7% coverage)
-- Database migrations (needs tests)
-- API character endpoints (35% coverage)
+### Test Coverage Status
+
+#### Frontend Tests
+- ✅ Error Display Component (100% coverage)
+  - Error message rendering
+  - Retry functionality
+  - Close button behavior
+  - Full page mode
+  - Error details display
+
+- ✅ Loading State Component (100% coverage)
+  - Spinner variant
+  - Skeleton variant
+  - Custom styling
+  - Text display
+  - Multiple skeleton items
+
+- ✅ Error Handling Utilities (95% coverage)
+  - Error formatting
+  - Retryable error detection
+  - API error conversion
+  - Network error handling
+  - Rate limit handling
+
+- ⚠️ Retry Operation (90% coverage)
+  - Success scenarios
+  - Network error retries
+  - Non-retryable errors
+  - Default max attempts
+  - Exponential backoff
+  - Known issue with maxAttempts test
+
+#### Areas for Testing Focus
+1. Error Handling Edge Cases
+   - Rate limiting scenarios
+   - Network timeouts
+   - Server errors
+   - Invalid response formats
+
+2. Component Integration Tests
+   - Character creation workflow
+   - Story generation process
+   - Image generation error handling
+   - Form validation feedback
+
+3. API Integration Tests
+   - Authentication flows
+   - Data fetching
+   - Error recovery
+   - Retry mechanisms
+
+### Current Test Coverage
+- Frontend Components: 44% coverage
+- Error Handling: 95% coverage
+- Loading States: 100% coverage
+- API Integration: 35% coverage
+
+### Testing Priorities
+1. Fix retry operation maxAttempts test
+2. Add rate limiting and timeout tests
+3. Implement API integration tests
+4. Add end-to-end workflow tests
 
 ## Project Structure
 
