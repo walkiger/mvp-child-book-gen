@@ -2,6 +2,19 @@
 
 This application generates personalized children's books using AI.
 
+## Getting Started
+
+1. Clone the repository
+2. Run `python manage.py setup-project` to set up the environment
+   - Creates virtual environment
+   - Installs backend dependencies
+   - Installs frontend dependencies
+   - Configures Alembic for migrations
+3. Run `python manage.py env setup` to configure environment variables
+4. Run `python manage.py init-db` to initialize the database
+5. Run `python manage.py migrate` to apply migrations
+6. Run `python manage.py start` to start the application
+
 ## Management Commands
 
 The application includes a comprehensive management CLI for various tasks:
@@ -35,22 +48,10 @@ The application includes a comprehensive management CLI for various tasks:
 - `python manage.py status` - Show server status
 - `python manage.py cleanup` - Clean up stale PID files
 
-- `python manage.py dashboard` - Start a web dashboard for managing servers
-  - `--port PORT` - Specify dashboard port (default: 3001)
-  - `--backend-port PORT` - Specify backend port (default: 8080)
-  - `--frontend-port PORT` - Specify frontend port (default: 3000)
-
 ### Environment Management
 
 - `python manage.py env setup` - Setup or update environment variables
 - `python manage.py env show` - Display current environment variables
-
-### Project Setup
-
-- `python manage.py setup-project` - Setup the project environment:
-  - Create virtual environment
-  - Install dependencies
-  - Configure Alembic for migrations
 
 ### Database Management
 
@@ -78,15 +79,6 @@ The application includes a comprehensive management CLI for various tasks:
 
 - `python manage.py check-images` - Check image information in the database
   - `--db-path PATH` - Path to database file
-
-## Getting Started
-
-1. Clone the repository
-2. Run `python manage.py setup-project` to set up the environment
-3. Run `python manage.py env setup` to configure environment variables
-4. Run `python manage.py init-db` to initialize the database
-5. Run `python manage.py migrate` to apply migrations
-6. Run `python manage.py start` to start the application
 
 ## Error Handling Framework
 
@@ -144,7 +136,11 @@ python -m pytest tests/test_error_handling.py
 python -m pytest --cov=app --cov=management --cov=utils
 ```
 
-Current test coverage is at 44% with all error handling tests passing. The target is to reach at least 70% coverage.
+Current test coverage is at 44% with ongoing improvements. Key areas for testing focus:
+- Management content inspection (9% coverage)
+- Database inspection utilities (7% coverage)
+- Database migrations (needs tests)
+- API character endpoints (35% coverage)
 
 ## Project Structure
 
@@ -160,15 +156,44 @@ Current test coverage is at 44% with all error handling tests passing. The targe
 
 ## Development Roadmap
 
-### Immediate Priorities
-
+### Immediate Priorities (1-2 days)
 - Fix API test failures related to FastAPI mock configuration
 - Address Pydantic V2 deprecation warnings in schema files
-- Improve command test mocking
+- Fix CORS headers configuration
 
-### Future Enhancements
-
-- Increase test coverage to 70%+
+### Short-term Goals (3-5 days)
+- Fix command test mocking issues
+- Fix configuration test environment validation
 - Standardize logging across all modules
-- Enhance error handling documentation
-- Implement comprehensive monitoring 
+
+### Medium-term Goals (1-2 weeks)
+- Improve error handling documentation
+- Implement environment variable validation
+- Add diagnostic tooling for troubleshooting
+
+### Long-term Goals (2-4 weeks)
+- Increase test coverage to 70%+
+- Implement comprehensive monitoring dashboard
+- Add automated recovery actions for common failures
+
+## Frontend Improvements
+
+### Immediate Focus
+- Complete character creation API integration
+- Fix image generation error handling
+- Implement form validation
+
+### Short-term Goals
+- Convert character creation to step-by-step wizard
+- Enhance state management
+- Implement dashboard improvements
+
+### Medium-term Goals
+- Add visual trait selection interface
+- Improve story generation workflow
+- Implement PWA features
+
+### Long-term Goals
+- Add print-ready export functionality
+- Implement advanced storytelling features
+- Create character relationships system 
