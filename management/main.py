@@ -258,7 +258,8 @@ def parse_args():
     env_subparsers = env_parser.add_subparsers(dest="env_command", help="Environment command")
     
     # Setup environment variables
-    env_subparsers.add_parser("setup", help="Setup or update environment variables")
+    env_setup_parser = env_subparsers.add_parser("setup", help="Setup or update environment variables")
+    env_setup_parser.add_argument("--auto", action="store_true", help="Automatically create .env file without user interaction")
     
     # Show environment variables
     env_subparsers.add_parser("show", help="Display current environment variables")
@@ -438,7 +439,7 @@ def main():
         # Environment management commands
         elif args.command == "env":
             if args.env_command == "setup":
-                setup_environment()
+                setup_environment(auto_mode=getattr(args, 'auto', False))
             elif args.env_command == "show":
                 show_current_env()
             else:
