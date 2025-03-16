@@ -1,0 +1,58 @@
+# Items That Could Potentially Be Removed
+
+## ✅ Already Removed
+
+1. Cursor-tab functionality:
+   - ✅ `open_cursor_tab()` function
+   - ✅ `cursor-dev` command
+   - ✅ `--cursor-tabs` option
+   - **Status**: REMOVED
+
+2. Database file:
+   - ✅ `storybook.db` removed from version control
+   - **Status**: COMPLETED
+
+3. Redundant process detection methods:
+   - ✅ Multiple fallback mechanisms in `find_server_pid()`
+   - ✅ Platform-specific code that could be handled by `psutil`
+   - **Status**: COMPLETED
+   - **Note**: Simplified the code to focus on the most reliable methods for each platform
+
+## Still To Be Addressed
+
+1. Utility scripts:
+   - The following scripts are now redundant with `management/db_utils.py`:
+     - `simple_init_db.py`
+     - `init_db.py`
+     - `run_migrations.py`
+   - Scripts to potentially consolidate into the CLI:
+     - `check_*.py` scripts
+     - `start_backend.py`, `start_frontend.py`
+     - `db_explorer.py`, `dump_db.py`, `dump_to_file.py`
+   - **Priority**: MEDIUM
+
+## Low Priority
+
+1. Log files:
+   - ✅ `logs/` directory contents now in .gitignore
+   - **Status**: ADDRESSED
+
+2. PID files:
+   - ✅ `.pids/` directory contents now in .gitignore
+   - **Status**: ADDRESSED
+
+3. Debug/temporary files:
+   - ✅ `cursor_tabs_output.txt` and other temporary files now in .gitignore
+   - **Status**: ADDRESSED
+
+## Dependencies
+
+1. Review `node_modules/` structure:
+   - Check for unnecessary dependencies
+   - ✅ Already correctly excluded in .gitignore
+   - **Priority**: LOW
+
+# Standalone scripts to remove after management package integration
+- setup_project_env.py - Replaced by 'python manage.py setup-project'
+- manage_env.py - Replaced by 'python manage.py env setup|show'
+- integrate_existing_migrations.py - Replaced by 'python manage.py integrate-migrations' 

@@ -1,0 +1,70 @@
+{
+  "timestamp": "2025-03-15 22:29:09",
+  "system": {
+    "hostname": "DESKTOP-6J1TSGK",
+    "os": "Windows 10",
+    "resources": {
+      "cpu_percent": 13.6,
+      "memory_percent": 80.5,
+      "memory_available_gb": 1.44,
+      "disk_usage": {
+        "total_gb": 476.33,
+        "used_gb": 423.69,
+        "free_gb": 52.63,
+        "percent_used": 89.0
+      }
+    }
+  },
+  "servers": {
+    "backend": {
+      "server_type": "backend",
+      "pid": null,
+      "status": "Unreachable",
+      "uptime": "N/A",
+      "avg_cpu_percent": 0,
+      "avg_memory_mb": 0,
+      "avg_response_ms": 0,
+      "error_count": 1,
+      "last_checked": "Never"
+    },
+    "frontend": {
+      "server_type": "frontend",
+      "pid": null,
+      "status": "Healthy",
+      "uptime": "N/A",
+      "avg_cpu_percent": 0,
+      "avg_memory_mb": 0,
+      "avg_response_ms": 6.0,
+      "error_count": 0,
+      "last_checked": "Never"
+    }
+  },
+  "logs": {
+    "app": {
+      "error_count": 1,
+      "warning_count": 26,
+      "info_count": 73,
+      "recent_errors": [
+        "2025-03-15 22:29:17,483 - management.monitoring - ERROR - Health check failed for http://localhost:8080/: HTTPConnectionPool(host='localhost', port=8080): Read timed out. (read timeout=5)"
+      ]
+    },
+    "management": {
+      "error_count": 0,
+      "warning_count": 1,
+      "info_count": 99,
+      "recent_errors": []
+    },
+    "backend": {
+      "error_count": 0,
+      "warning_count": 1,
+      "info_count": 54,
+      "recent_errors": []
+    },
+    "frontend": {
+      "error_count": 0,
+      "warning_count": 0,
+      "info_count": 0,
+      "recent_errors": []
+    }
+  }
+}

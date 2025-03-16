@@ -1,122 +1,165 @@
 # app/api/auth.py
 
 """
-Authentication endpoints for user registration and login.
+Authentication API endpoints.
 """
 
 from datetime import timedelta
-
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from jose import JWTError, jwt
 
-from app.api.dependencies import get_db
-from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token
-from app.database import models
-from app.database.utils import hash_password, verify_password
-from app.schemas.user import LoginRequest, Token, UserCreate, UserResponse
-
-router = APIRouter(
-    prefix="/auth",
-    tags=["auth"],
+from app.core.auth import (
+    get_current_user,
+    create_access_token,
+    verify_password,
+    get_password_hash
 )
+from app.database.models import User
+from app.database.session import get_db
+from app.schemas.auth import Token, UserCreate, UserResponse
+from app.config import settings
+
+router = APIRouter(tags=["auth"])
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-@router.post("/register", response_model=UserResponse)
-def register_user(
-    user_in: UserCreate,
-    db: Session = Depends(get_db),
-):
+@router.post("/register", response_model=Token)
+async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
     """
-    Register a new user with email and password.
-
-    Args:
-        user_in (UserCreate): The user's registration information.
-        db (Session): The database session.
-
-    Returns:
-        UserResponse: The newly created user.
+    Register a new user.
     """
-    # Check if email or username already exists
-    existing_user = (
-        db.query(models.User)
-        .filter(
-            (models.User.email == user_in.email)
-            | (models.User.username == user_in.username)
-        )
-        .first()
-    )
-    if existing_user:
+    print(f"Registration attempt for email: {user.email}")
+    
+    # Check if user already exists
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        print(f"User already exists with email: {user.email}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email or username already registered.",
+            detail="Email already registered"
         )
-
-    # Hash the password
-    hashed_password = hash_password(user_in.password)
-
-    # Create new user instance
-    new_user = models.User(
-        username=user_in.username,
-        email=user_in.email,
+    
+    # Create new user
+    print("Creating new user...")
+    hashed_password = get_password_hash(user.password)
+    db_user = User(
+        email=user.email,
+        username=user.username,
         password_hash=hashed_password,
-        first_name=user_in.first_name,
-        last_name=user_in.last_name,
-        phone_number=user_in.phone_number,
+        first_name=user.first_name,
+        last_name=user.last_name
     )
-
-    # Add to the database
+    
     try:
-        db.add(new_user)
+        db.add(db_user)
         db.commit()
-        db.refresh(new_user)
-    except IntegrityError:
+        db.refresh(db_user)
+        print(f"User created successfully with ID: {db_user.id}")
+    except Exception as e:
+        print(f"Error creating user: {str(e)}")
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration failed. Please try again.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user"
         )
-
-    return new_user
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": db_user.email}, expires_delta=access_token_expires
+    )
+    print("Access token created")
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 
 
 @router.post("/login", response_model=Token)
-def login_user(
-    login_data: LoginRequest,
-    db: Session = Depends(get_db),
-):
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+) -> Any:
     """
-    Authenticate user and return an access token.
-
-    Args:
-        login_data (LoginRequest): The user's login credentials.
-        db (Session): The database session.
-
-    Returns:
-        Token: The access token and token type.
+    Get access token for valid credentials.
     """
-    # Retrieve user by email
-    user = db.query(models.User).filter(models.User.email == login_data.email).first()
+    print(f"Login attempt for username: {form_data.username}")
+    
+    # Find user by email
+    user = db.query(User).filter(User.email == form_data.username).first()
     if not user:
+        print(f"User not found with email: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     # Verify password
-    if not verify_password(login_data.password, user.password_hash):
+    if not verify_password(form_data.password, user.password_hash):
+        print(f"Invalid password for user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # Include is_admin status in the token data
+    token_data = {
+        "sub": user.email,
+        "is_admin": getattr(user, "is_admin", False)
+    }
+    
     access_token = create_access_token(
-        data={"sub": str(user.id)},
-        expires_delta=access_token_expires,
+        data=token_data,
+        expires_delta=access_token_expires
     )
+    
+    print(f"Login successful for user: {user.email}")
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_admin": getattr(user, "is_admin", False)
+        }
+    }
 
-    return Token(access_token=access_token, token_type="bearer")
+
+@router.get("/me", response_model=UserResponse)
+async def read_users_me(
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Get current user information.
+    """
+    return current_user
+
+
+@router.get("/check-user/{email}")
+async def check_user(
+    email: str,
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    Check if a user exists (debug route).
+    """
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        return {
+            "exists": True,
+            "email": user.email,
+            "username": user.username
+        }
+    return {"exists": False}

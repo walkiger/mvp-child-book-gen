@@ -1,3 +1,8 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -5,11 +10,12 @@ __pycache__/
 
 # Environment variables
 .env
-.venv
 
 # SQLite database files
 *.db
 *.sqlite3
+# But allow schema files and migrations
+!migrations/*.db
 
 # PyCharm project files
 .idea/
@@ -17,3 +23,62 @@ __pycache__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Node modules (too large for Git)
+node_modules/
+
+
+# PID files
+.pids/
+*.pid
+
+# Log files
+logs/
+*.log
+tests/*.log 
+**/test_*.log
+
+# Temporary files
+#temp_analysis/
+cleanup_backup/
+*.tmp
+*.temp
+cursor_tabs_output.txt
+
+# Database dumps and backups
+*.dump
+db_dump.txt
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Testing
+.pytest_cache/
+.tox/
+nosetests.xml
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Frontend build artifacts
+frontend/build/
+frontend/dist/
+
+# Local configuration files
+*.local.json
+*.local.js
+*.local.py
+
+# Backup files
+*~
+*.bak
+*.swp

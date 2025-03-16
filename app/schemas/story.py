@@ -1,14 +1,14 @@
 # app/schemas/story.py
 
 """
-Pydantic schemas for story operations.
+Pydantic schemas for story-related data models.
 """
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class AgeGroup(str, Enum):
@@ -38,50 +38,12 @@ class MoralLesson(str, Enum):
 
 class StoryBase(BaseModel):
     """Base schema for story operations."""
-    title: str = Field(
-        ...,
-        min_length=2,
-        max_length=100,
-        examples=["The Brave Little Turtle"],
-        description="Title of the story"
-    )
-    character_id: int = Field(
-        ...,
-        gt=0,
-        examples=[1],
-        description="ID of the character to use in the story"
-    )
-    age_group: AgeGroup = Field(
-        ...,
-        examples=[AgeGroup.AGE_3_5],
-        description="Target age group for the story"
-    )
-    locations: List[str] = Field(
-        ...,
-        min_length=1,
-        examples=[["Enchanted Forest", "Crystal Cave"]],
-        description="List of locations for the story"
-    )
-    moral_lesson: Optional[MoralLesson] = Field(
-        None,
-        examples=[MoralLesson.COURAGE],
-        description="Optional moral lesson for the story"
-    )
-    story_tone: StoryTone = Field(
-        default=StoryTone.WHIMSICAL,
-        examples=[StoryTone.ADVENTUROUS],
-        description="Desired tone for the story"
-    )
-
-    @field_validator("locations")
-    @classmethod
-    def validate_locations(cls, v: List[str]) -> List[str]:
-        """Validate at least one location with non-empty strings."""
-        if not v:
-            raise ValueError("At least one location required")
-        if any(len(loc.strip()) == 0 for loc in v):
-            raise ValueError("Location strings cannot be empty")
-        return v
+    title: str
+    age_group: str = Field(..., pattern="^(1-2|3-6|6-9|10-12)$")
+    page_count: int = Field(..., ge=1, le=20)
+    character_id: int
+    story_tone: str = Field(..., pattern="^(whimsical|educational|adventurous|calming)$")
+    moral_lesson: Optional[str] = Field(None, pattern="^(kindness|courage|friendship|honesty|perseverance)$")
 
 
 class StoryCreate(StoryBase):
@@ -99,52 +61,21 @@ class StoryResponse(StoryBase):
     """Schema for returning story details."""
     id: int
     user_id: int
-    content: dict = Field(
-        ...,
-        examples=[{"pages": ["Once upon a time..."]}],
-        description="Generated story content in structured format"
-    )
-    created_at: datetime
-    images: List[str] = Field(
-        default_factory=list,
-        examples=["images/story1/page1.jpg"],
-        description="List of generated image paths"
-    )
+    content: Dict[str, Any]
+    created_at: str
+    character: Dict[str, Any]
 
-    model_config = {
-        "from_attributes": True,
-        "json_schema_extra": {
-            "examples": [{
-                "id": 1,
-                "user_id": 1,
-                "title": "The Brave Little Turtle",
-                "character_id": 1,
-                "age_group": "3-5",
-                "locations": ["Enchanted Forest"],
-                "moral_lesson": "courage",
-                "story_tone": "adventurous",
-                "content": {"pages": ["Once upon a time..."]},
-                "created_at": "2024-02-20T12:00:00",
-                "images": []
-            }]
-        }
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StoryUpdate(BaseModel):
     """Schema for updating existing stories."""
-    title: Optional[str] = Field(
-        None,
-        min_length=2,
-        max_length=100,
-        examples=["Updated Story Title"],
-        description="New title for the story"
-    )
-    story_tone: Optional[StoryTone] = Field(
-        None,
-        examples=[StoryTone.EDUCATIONAL],
-        description="Updated story tone"
-    )
+    title: Optional[str] = None
+    content: Optional[Dict[str, Any]] = None
+    age_group: Optional[str] = Field(None, pattern="^(1-2|3-6|6-9|10-12)$")
+    page_count: Optional[int] = Field(None, ge=1, le=20)
+    story_tone: Optional[str] = Field(None, pattern="^(whimsical|educational|adventurous|calming)$")
+    moral_lesson: Optional[str] = Field(None, pattern="^(kindness|courage|friendship|honesty|perseverance)$")
 
 
 class StoryPublic(BaseModel):

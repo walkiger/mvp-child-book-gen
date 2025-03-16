@@ -1,0 +1,377 @@
+# Test Cases Needed
+
+## Priority 1: Core Functionality Tests
+
+### Database Management Tests
+1. Database Initialization Tests
+   - Test the initialization of a new database
+   - Test handling when database already exists
+   - Test error handling for file permission issues
+   - Test the creation of all required tables
+
+2. Migration System Tests
+   - Test applying available migrations
+   - Test handling of already applied migrations
+   - Test error handling for invalid migrations
+   - Test migration tracking in the database
+
+### Server Management Tests
+1. Backend Server Tests
+   - Test starting the backend server
+   - Test stopping the backend server
+   - Test checking backend server status
+   - Test handling when server is already running
+   - Test handling when server is not running
+
+2. Frontend Server Tests
+   - Test starting the frontend server
+   - Test stopping the frontend server
+   - Test checking frontend server status
+   - Test handling when server is already running
+   - Test handling when server is not running
+
+## Priority 2: Technical Infrastructure Tests
+
+1. PID Management
+   - Test PID file creation
+   - Test PID file reading
+   - Test cleanup of stale PID files
+   - Test handling invalid PID files
+
+2. Process Detection
+   - Test process detection on different platforms
+   - Test handling of edge cases (process terminated externally)
+   - Test handling of permission issues
+
+3. Command-Line Interface Tests
+   - Test all command variations
+   - Test with valid and invalid arguments
+   - Test help output
+
+## Priority 3: Integration Tests
+
+1. End-to-End Workflows
+   - Test full server lifecycle (start, status check, stop)
+   - Test with real frontend and backend applications
+   - Test database initialization and migration as part of setup
+
+2. Error Recovery
+   - Test recovery from abnormal termination
+   - Test handling of port conflicts
+
+3. Output Formatting
+   - Test status command output format
+   - Test error message formatting
+   - Test logging to files and console
+
+## General Management Commands
+
+1. **Help Command**
+   - Command: `python manage.py help`
+   - Expected: Display help message with available commands
+   - Status: PASS
+
+2. **Version Command**
+   - Command: `python manage.py version`
+   - Expected: Display version information
+   - Status: PASS
+
+## Server Management
+
+1. **Start Backend Server**
+   - Command: `python manage.py start-backend`
+   - Expected: Backend server starts successfully
+   - Status: PASS
+
+2. **Start Frontend Server**
+   - Command: `python manage.py start-frontend`
+   - Expected: Frontend server starts successfully
+   - Status: PASS
+
+3. **Server Status Check**
+   - Command: `python manage.py status`
+   - Expected: Shows status of all servers
+   - Status: PASS
+
+4. **Stop Backend Server**
+   - Command: `python manage.py stop-backend`
+   - Expected: Backend server stops successfully
+   - Status: PASS
+
+5. **Stop Frontend Server**
+   - Command: `python manage.py stop-frontend`
+   - Expected: Frontend server stops successfully
+   - Status: PASS
+
+## Database Management
+
+1. **Initialize Database**
+   - Command: `python manage.py init-db`
+   - Expected: Database is initialized successfully
+   - Status: PASS
+
+2. **Check Database Structure**
+   - Command: `python manage.py db-check`
+   - Expected: Database structure is checked and reported
+   - Status: PASS
+
+3. **Explore Database Contents**
+   - Command: `python manage.py db-explore`
+   - Expected: Database contents are displayed
+   - Status: PASS
+   
+4. **Dump Database to File**
+   - Command: `python manage.py db-dump --output dump.json`
+   - Expected: Database is dumped to file successfully
+   - Status: PASS
+
+## Error Handling Tests
+
+1. **Test Error Handling on Invalid Command**
+   - Command: `python manage.py invalid-command`
+   - Expected: Appropriate error message is displayed
+   - Status: PASS
+
+2. **Test Database Error Handling**
+   - Command: `python manage.py db-check --db-path nonexistent.db`
+   - Expected: Error about missing database file is displayed
+   - Status: PASS
+   - Tests implemented in: `test_commands.py::TestDatabaseInspectionCommands::test_check_db_structure_failure`
+
+3. **Test Server Error Handling**
+   - Command: `python manage.py stop-backend` (when not running)
+   - Expected: Appropriate message that server is not running
+   - Status: PASS
+   - Tests implemented in: `test_commands.py::TestStopCommands::test_stop_server_not_running`
+
+4. **Test Decorator Error Handling**
+   - Command: Run test script `python -m pytest tests/test_error_handling.py`
+   - Expected: Errors are properly caught and handled by decorators
+   - Status: IMPLEMENTED
+   - Tests implemented in: `test_error_handling.py` 
+   - Test functions:
+     - `test_decorator_basic_functionality`
+     - `test_decorator_with_context`
+     - `test_decorator_exit_behavior`
+     - `test_decorator_handles_management_errors`
+     - `test_decorator_handles_file_not_found`
+
+5. **Test Error Inheritance**
+   - Command: Run test script `python -m pytest tests/test_error_simple.py`
+   - Expected: Error inheritance works as expected
+   - Status: IMPLEMENTED
+   - Tests implemented in: `test_error_simple.py`
+   - Test functions:
+     - `test_error_class_creation`
+     - `test_severity_levels` 
+     - `test_error_details`
+
+6. **Test Standalone Error Handling**
+   - Command: Run test script `python -m pytest tests/test_standalone.py`
+   - Expected: Standalone error handling functions work correctly
+   - Status: IMPLEMENTED
+   - Tests implemented in: `test_standalone.py`
+   - Test functions:
+     - `test_handle_error_standalone`
+     - `test_error_messages`
+     - `test_severity_levels_standalone`
+     - `test_logger_setup`
+     - `test_error_exit_behavior`
+
+7. **Test Error Severity Levels**
+   - Command: Run specific test cases that trigger different severity levels
+   - Expected: Each severity level produces appropriate output
+   - Status: IMPLEMENTED
+   - Tests implemented in:
+     - `test_error_handling.py::test_error_severity_levels`
+     - `test_standalone.py::test_severity_levels_standalone`
+     - `test_error_simple.py::test_severity_levels`
+
+8. **Error Recovery Test**
+   - Command: `python manage.py start-backend --force` (when already running)
+   - Expected: Previous instance is properly shut down and new one starts
+   - Status: IMPLEMENTED
+   - Tests implemented in:
+     - `test_error_handling.py::test_database_error_recovery`
+     - `test_error_handling.py::test_server_error_recovery`
+
+9. **API Error Handling**
+   - Command: Send invalid data to API endpoints
+   - Expected: Proper HTTP error codes and error messages
+   - Status: PASS
+   - Tests implemented in: `test_auth.py`, `test_stories.py`, and `test_characters.py`
+   
+10. **Image Generation Error Handling**
+    - Test: Error handling during image generation
+    - Expected: Proper error propagation when external API fails
+    - Status: PASS
+    - Tests implemented in: `test_image_generation.py::test_generate_character_images_error_handling`
+
+## Project Environment Tests (To Be Implemented)
+
+1. **Setup Environment Command**
+   - Command: `python manage.py setup-env`
+   - Expected: Project environment is set up correctly with virtualenv and dependencies
+   - Status: NOT IMPLEMENTED
+
+2. **Test Setup with Existing Environment**
+   - Command: `python manage.py setup-env --force`
+   - Expected: Existing environment is properly updated
+   - Status: NOT IMPLEMENTED
+
+3. **Test Setup with Custom Environment Path**
+   - Command: `python manage.py setup-env --env-path custom_env`
+   - Expected: Environment is created at the specified location
+   - Status: NOT IMPLEMENTED
+
+## Environment Variable Tests (To Be Implemented)
+
+1. **Manage Environment Variables Command**
+   - Command: `python manage.py manage-env`
+   - Expected: Environment variables management UI is displayed
+   - Status: NOT IMPLEMENTED
+
+2. **Show Current Environment Variables**
+   - Command: `python manage.py manage-env --show`
+   - Expected: Current environment variables are displayed
+   - Status: NOT IMPLEMENTED
+
+3. **Update Environment Variable**
+   - Command: `python manage.py manage-env --set KEY=VALUE`
+   - Expected: Environment variable is updated in .env file
+   - Status: NOT IMPLEMENTED
+
+4. **Test with Missing .env File**
+   - Command: `python manage.py manage-env --show` (when .env doesn't exist)
+   - Expected: Appropriate error and suggestion to create file
+   - Status: NOT IMPLEMENTED
+
+## Migration Integration Tests (To Be Implemented)
+
+1. **Integrate Migrations Command**
+   - Command: `python manage.py integrate-migrations`
+   - Expected: Existing migrations are properly integrated with Alembic
+   - Status: NOT IMPLEMENTED
+
+2. **Test with Already Integrated Migrations**
+   - Command: `python manage.py integrate-migrations`
+   - Expected: System detects already integrated migrations and provides appropriate message
+   - Status: NOT IMPLEMENTED
+
+3. **Test with Custom Migration Directory**
+   - Command: `python manage.py integrate-migrations --migrations-dir custom/path`
+   - Expected: Migrations from custom directory are properly integrated
+   - Status: NOT IMPLEMENTED
+
+## Needed Error Handling Tests
+
+1. **Error Handler Decorator Test**
+   - What: Test that the `@with_error_handling` decorator properly catches and handles different types of exceptions
+   - How: Create test functions that raise different errors and verify correct handling
+   - Priority: HIGH
+
+2. **Error Severity Level Test**
+   - What: Test handling of different error severity levels (INFO, WARNING, ERROR, CRITICAL)
+   - How: Trigger errors with different severity levels and verify correct output and behavior
+   - Priority: MEDIUM
+
+3. **Error Inheritance Test**
+   - What: Test the custom exception hierarchy (ManagementError and subclasses)
+   - How: Create instances of different error classes and verify inheritance behavior
+   - Priority: MEDIUM
+
+4. **Database Error Recovery Test**
+   - What: Test recovery from database errors like connection issues
+   - How: Simulate database errors and verify proper error messages and recovery behavior
+   - Priority: HIGH
+
+5. **Server Error Recovery Test**
+   - What: Test recovery from server errors like port conflicts
+   - How: Simulate server start failures and verify proper error messages and recovery options
+   - Priority: HIGH
+
+## Additional Test Cases
+
+1. **Test with Invalid Database**
+   - Command: `python manage.py db-check --db-path corrupted.db`
+   - Expected: Appropriate error about database corruption
+   - Status: NOT TESTED
+
+2. **Test with Missing Dependencies**
+   - Command: Simulate missing dependencies and run commands
+   - Expected: Helpful error messages about missing dependencies
+   - Status: NOT TESTED
+
+3. **Test Concurrent Server Operations**
+   - Command: Run multiple server start/stop commands concurrently
+   - Expected: Commands handle concurrency without errors
+   - Status: NOT TESTED
+
+## Database Tests
+- Test database initialization
+- Test model relationships
+- Test data integrity constraints
+- Test query performance
+- Test migration scripts
+
+## API Endpoint Tests
+- Test authentication
+- Test rate limiting
+- Test input validation
+- Test error responses
+- Test successful responses
+- Test CORS headers
+
+## Story Generation Tests
+- Test story creation
+- Test age-appropriate content
+- Test moral lesson integration
+- Test different story tones
+- Test character integration
+- Test image generation triggers
+
+## Character Management Tests
+- Test character creation
+- Test character attributes
+- Test character retrieval
+- Test character updates
+- Test character deletion
+
+## Error Handling Tests
+- Test error class hierarchy
+- Test exception inheritance and properties
+- Test error severity levels
+- Test error handling decorator with different parameters:
+  - exit_on_error
+  - log_level
+  - raise_error
+  - show_traceback
+- Test error logging configuration
+- Test error message formatting
+- Test recovery mechanisms
+- Test error handling with nested functions
+- Test integration with:
+  - Command-line tools
+  - API endpoints
+  - Database operations
+  - Image generation
+- Test standalone error handling functions
+- Test error handlers with mocked dependencies
+- Test error handlers in different environments
+- Test error report formatting
+- Test error exit behavior
+
+## Performance Tests
+- Test API response times under load
+- Test story generation time
+- Test image generation time
+- Test database query performance
+- Test memory usage
+
+## Security Tests
+- Test input sanitization
+- Test SQL injection prevention
+- Test XSS prevention
+- Test authentication bypass attempts
+- Test authorization controls
+- Test rate limiting effectiveness 

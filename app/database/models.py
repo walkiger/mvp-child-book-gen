@@ -14,6 +14,7 @@ from sqlalchemy import (
     Float,
     CheckConstraint,
     LargeBinary,
+    Boolean,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -31,47 +32,10 @@ class User(Base):
 
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
-    phone_number = Column(String, nullable=True)
-
-    address_line1 = Column(String, nullable=True)
-    address_line2 = Column(String, nullable=True)
-    city = Column(String, nullable=True)
-    state = Column(String, nullable=True)
-    postal_code = Column(String, nullable=True)
-    country = Column(String, nullable=True)
-
-    avatar = Column(LargeBinary, nullable=True)
-    avatar_content_type = Column(String, nullable=True)  # e.g., 'image/png'
-
-    created_at = Column(DateTime, default=datetime.utcnow)
+    is_admin = Column(Boolean, default=False, nullable=False)
 
     characters = relationship('Character', back_populates='user')
     stories = relationship('Story', back_populates='user')
-    subscriptions = relationship('Subscription', back_populates='user')
-    payments = relationship('Payment', back_populates='user')
-    social_accounts = relationship('SocialAccount', back_populates='user')
-
-
-class SocialAccount(Base):
-    __tablename__ = 'social_accounts'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    provider = Column(
-        String,
-        nullable=False
-    )  # e.g., 'google', 'facebook', 'microsoft', 'phone'
-    provider_user_id = Column(String, nullable=False)
-    access_token = Column(String, nullable=True)
-    refresh_token = Column(String, nullable=True)
-    expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint('user_id', 'provider', name='uq_user_provider'),
-    )
-
-    user = relationship('User', back_populates='social_accounts')
 
 
 class Character(Base):
@@ -83,10 +47,12 @@ class Character(Base):
     traits = Column(JSON)
     image_prompt = Column(String)
     image_path = Column(String)
+    generated_images = Column(JSON)  # Store array of image URLs/references
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship('User', back_populates='characters')
     stories = relationship("Story", back_populates="character")
+    images = relationship("Image", back_populates="character")
 
 
 class Story(Base):
@@ -133,56 +99,13 @@ class Image(Base):
     id = Column(Integer, primary_key=True)
     story_id = Column(Integer, ForeignKey('stories.id'), nullable=True)
     character_id = Column(Integer, ForeignKey('characters.id'), nullable=True)
-    image_path = Column(String, nullable=False)
+    image_data = Column(LargeBinary, nullable=False)  # Store actual image data
+    image_format = Column(String, nullable=False)  # Store image format (e.g., 'png', 'jpg')
     generation_cost = Column(Float, nullable=True)
+    dalle_version = Column(String, nullable=False)  # Store which DALL-E version was used
     generated_at = Column(DateTime, default=datetime.utcnow)
+    regeneration_count = Column(Integer, default=0)  # Track number of regenerations
+    grid_position = Column(Integer, nullable=True)  # Position in 2x2 grid (0-3)
 
     story = relationship('Story', back_populates='images')
-    character = relationship('Character')
-
-
-class SubscriptionPlan(Base):
-    __tablename__ = 'subscription_plans'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    price_monthly = Column(Integer)
-    features = Column(JSON, nullable=False)
-    stripe_price_id = Column(String)
-
-    __table_args__ = (
-        CheckConstraint(
-            "name IN ('free', 'basic', 'pro')",
-            name='valid_plan_names',
-        ),
-    )
-
-
-class Subscription(Base):
-    __tablename__ = 'subscriptions'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    plan_id = Column(
-        Integer,
-        ForeignKey('subscription_plans.id'),
-        nullable=False,
-    )
-    status = Column(String, default='active')
-    current_period_end = Column(DateTime)
-    stripe_subscription_id = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Payment(Base):
-    __tablename__ = 'payments'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    amount = Column(Float, nullable=False)
-    currency = Column(String, default='EUR')
-    provider = Column(String, nullable=False)
-    provider_payment_id = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship('User', back_populates='payments')
+    character = relationship('Character', back_populates='images')

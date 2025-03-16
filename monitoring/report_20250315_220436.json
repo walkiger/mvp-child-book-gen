@@ -1,0 +1,68 @@
+{
+  "timestamp": "2025-03-15 22:04:32",
+  "system": {
+    "hostname": "DESKTOP-6J1TSGK",
+    "os": "Windows 10",
+    "resources": {
+      "cpu_percent": 16.6,
+      "memory_percent": 73.8,
+      "memory_available_gb": 1.93,
+      "disk_usage": {
+        "total_gb": 476.33,
+        "used_gb": 423.67,
+        "free_gb": 52.66,
+        "percent_used": 88.9
+      }
+    }
+  },
+  "servers": {
+    "backend": {
+      "server_type": "backend",
+      "pid": null,
+      "status": "Healthy",
+      "uptime": "N/A",
+      "avg_cpu_percent": 0,
+      "avg_memory_mb": 0,
+      "avg_response_ms": 2058.07,
+      "error_count": 0,
+      "last_checked": "Never"
+    },
+    "frontend": {
+      "server_type": "frontend",
+      "pid": null,
+      "status": "Healthy",
+      "uptime": "N/A",
+      "avg_cpu_percent": 0,
+      "avg_memory_mb": 0,
+      "avg_response_ms": 28.0,
+      "error_count": 0,
+      "last_checked": "Never"
+    }
+  },
+  "logs": {
+    "app": {
+      "error_count": 0,
+      "warning_count": 7,
+      "info_count": 89,
+      "recent_errors": []
+    },
+    "management": {
+      "error_count": 0,
+      "warning_count": 1,
+      "info_count": 99,
+      "recent_errors": []
+    },
+    "backend": {
+      "error_count": 0,
+      "warning_count": 1,
+      "info_count": 54,
+      "recent_errors": []
+    },
+    "frontend": {
+      "error_count": 0,
+      "warning_count": 0,
+      "info_count": 0,
+      "recent_errors": []
+    }
+  }
+}
