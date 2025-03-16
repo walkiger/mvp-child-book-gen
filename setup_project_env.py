@@ -1,7 +1,7 @@
 """
 Script to set up the project environment with:
 1. Virtual environment (if not exists)
-2. Project dependencies
+2. Project dependencies (backend and frontend)
 3. Alembic configuration for database migrations
 4. Environment variables (.env file)
 """
@@ -17,13 +17,14 @@ from pathlib import Path
 # Configuration
 VENV_DIR = '.venv'
 ALEMBIC_DIR = 'alembic'
+FRONTEND_DIR = 'frontend'
 
-def run_command(cmd, desc=None, check=True):
+def run_command(cmd, desc=None, check=True, cwd=None):
     """Run a shell command and print its status"""
     if desc:
         print(f"{desc}...")
     
-    result = subprocess.run(cmd, capture_output=True, text=True, check=check)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=check, cwd=cwd)
     
     if result.returncode != 0:
         print(f"Command failed with error: {result.stderr}")
@@ -195,6 +196,60 @@ def setup_environment():
         print(f"ERROR setting up environment variables: {str(e)}")
         print("You can set up environment variables manually by running 'python manage.py env setup --auto'")
 
+# Add functions for frontend setup
+def check_node_npm():
+    """Check if Node.js and npm are installed"""
+    try:
+        # Check Node.js version
+        node_result = run_command(['node', '--version'], check=False)
+        npm_result = run_command(['npm', '--version'], check=False)
+        
+        if node_result.returncode == 0 and npm_result.returncode == 0:
+            print(f"✓ Node.js {node_result.stdout.strip()} and npm {npm_result.stdout.strip()} found")
+            return True
+        else:
+            print("❌ Node.js or npm not found")
+            print("Please install Node.js and npm from https://nodejs.org/")
+            return False
+    except Exception as e:
+        print(f"Error checking Node.js and npm: {str(e)}")
+        return False
+
+def install_frontend_dependencies():
+    """Install frontend dependencies using npm"""
+    # Check if frontend directory exists
+    if not os.path.exists(FRONTEND_DIR):
+        print(f"❌ Frontend directory '{FRONTEND_DIR}' not found")
+        return False
+    
+    # Check for package.json
+    if not os.path.exists(os.path.join(FRONTEND_DIR, 'package.json')):
+        print(f"❌ package.json not found in {FRONTEND_DIR} directory")
+        return False
+    
+    # Check node and npm first
+    if not check_node_npm():
+        return False
+    
+    print("\n=== Installing Frontend Dependencies ===")
+    print(f"Setting up React application in {FRONTEND_DIR}/")
+    
+    # Install dependencies
+    try:
+        # Run npm install in the frontend directory
+        result = run_command(['npm', 'install'], "Installing npm packages", cwd=FRONTEND_DIR)
+        
+        if result.returncode == 0:
+            print("\n✅ Frontend dependencies installed successfully")
+            return True
+        else:
+            print("\n❌ Failed to install frontend dependencies")
+            print(f"Error: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"\n❌ Error installing frontend dependencies: {str(e)}")
+        return False
+
 def main():
     """Main entry point to set up the project environment"""
     print("===== Child Book Generator Project Setup =====")
@@ -203,31 +258,35 @@ def main():
     # Track setup status
     setup_status = {
         "virtualenv": False,
-        "dependencies": False,
+        "backend_dependencies": False,
+        "frontend_dependencies": False,
         "alembic": False,
         "env_file": False
     }
     
-    print("\n[1/4] Setting up virtual environment...")
+    print("\n[1/5] Setting up virtual environment...")
     setup_virtualenv()
     setup_status["virtualenv"] = os.path.exists(VENV_DIR)
     
-    print("\n[2/4] Installing dependencies...")
+    print("\n[2/5] Installing backend dependencies...")
     if setup_status["virtualenv"]:
         install_dependencies()
         # Consider it successful if we got this far
-        setup_status["dependencies"] = True
+        setup_status["backend_dependencies"] = True
     else:
         print("Skipping dependency installation as virtual environment setup failed.")
     
-    print("\n[3/4] Setting up database migrations...")
-    if setup_status["dependencies"]:
+    print("\n[3/5] Installing frontend dependencies...")
+    setup_status["frontend_dependencies"] = install_frontend_dependencies()
+    
+    print("\n[4/5] Setting up database migrations...")
+    if setup_status["backend_dependencies"]:
         setup_alembic()
         setup_status["alembic"] = os.path.exists(ALEMBIC_DIR)
     else:
-        print("Skipping Alembic setup as dependency installation failed.")
+        print("Skipping Alembic setup as backend dependency installation failed.")
     
-    print("\n[4/4] Setting up environment variables...")
+    print("\n[5/5] Setting up environment variables...")
     env_path = os.path.join(os.path.abspath('.'), '.env')
     env_exists_before = os.path.exists(env_path)
     setup_environment()
@@ -236,7 +295,8 @@ def main():
     # Print summary
     print("\n===== Setup Summary =====")
     print(f"✓ Virtual Environment: {'Created' if setup_status['virtualenv'] and not os.path.exists(VENV_DIR) else 'Already exists' if setup_status['virtualenv'] else 'Failed'}")
-    print(f"✓ Dependencies: {'Installed' if setup_status['dependencies'] else 'Failed'}")
+    print(f"✓ Backend Dependencies: {'Installed' if setup_status['backend_dependencies'] else 'Failed'}")
+    print(f"✓ Frontend Dependencies: {'Installed' if setup_status['frontend_dependencies'] else 'Failed'}")
     print(f"✓ Database Migrations: {'Configured' if setup_status['alembic'] else 'Failed'}")
     print(f"✓ Environment Variables: {'Created' if setup_status['env_file'] and not env_exists_before else 'Already exists' if setup_status['env_file'] else 'Failed'}")
     
@@ -253,8 +313,14 @@ def main():
     print("4. Run migrations: python manage.py migrate")
     print("5. Start the application: python manage.py start")
     
+    # Print specific messages if any step failed
     if not all(setup_status.values()):
         print("\n⚠️ WARNING: Some setup steps failed. See the logs above for details.")
+        
+    if not setup_status["frontend_dependencies"]:
+        print("\n⚠️ To manually install frontend dependencies:")
+        print(f"   cd {FRONTEND_DIR}")
+        print("   npm install")
 
 if __name__ == "__main__":
     main() 
