@@ -9,8 +9,6 @@ import {
   CardMedia,
   CardActions,
   Button,
-  CircularProgress,
-  Alert,
   Paper,
   Dialog,
   DialogTitle,
@@ -21,9 +19,12 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  SelectChangeEvent,
 } from '@mui/material'
 import useAuth from '../hooks/useAuth'
+import LoadingState from '../components/LoadingState'
+import ErrorDisplay from '../components/ErrorDisplay'
+import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling'
+import { SelectChangeEvent } from '@mui/material'
 
 interface Character {
   id: number
@@ -40,7 +41,7 @@ const CharacterCreator = () => {
   const { isAuthenticated } = useAuth()
   const [characters, setCharacters] = useState<Character[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string>('')
+  const [error, setError] = useState<ApiError | null>(null)
   const [openDialog, setOpenDialog] = useState(false)
   const [newCharacter, setNewCharacter] = useState<Partial<Character>>({
     name: '',
@@ -50,20 +51,24 @@ const CharacterCreator = () => {
     role: 'main',
   })
 
-  useEffect(() => {
-    const fetchCharacters = async () => {
-      try {
-        // TODO: Implement API call to fetch characters
-        // const response = await fetch('/api/characters')
-        // const data = await response.json()
-        // setCharacters(data)
-      } catch (err) {
-        setError('Failed to load characters. Please try again.')
-      } finally {
-        setLoading(false)
+  const fetchCharacters = async () => {
+    try {
+      const response = await fetch('/api/characters')
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
+      const data = await response.json()
+      setCharacters(data)
+      setError(null)
+    } catch (err) {
+      const apiError = formatApiError(err)
+      setError(apiError)
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     if (isAuthenticated) {
       fetchCharacters()
     }
@@ -89,24 +94,32 @@ const CharacterCreator = () => {
     setNewCharacter((prev) => ({ ...prev, [name as string]: value }))
   }
 
-  const handleSelectChange = (e: SelectChangeEvent) => {
+  const handleSelectChange = (e: SelectChangeEvent<string>) => {
     const { name, value } = e.target
-    setNewCharacter((prev) => ({ ...prev, [name as string]: value }))
+    setNewCharacter((prev) => ({ ...prev, [name]: value }))
   }
 
   const handleSubmit = async () => {
     try {
-      // TODO: Implement API call to create character
-      // const response = await fetch('/api/characters', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(newCharacter),
-      // })
-      // const data = await response.json()
-      // setCharacters((prev) => [...prev, data])
-      handleCloseDialog()
+      await retryOperation(async () => {
+        const response = await fetch('/api/characters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newCharacter),
+        })
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        
+        const data = await response.json()
+        setCharacters((prev) => [...prev, data])
+        setError(null)
+        handleCloseDialog()
+      })
     } catch (err) {
-      setError('Failed to create character. Please try again.')
+      const apiError = formatApiError(err)
+      setError(apiError)
     }
   }
 
@@ -123,18 +136,7 @@ const CharacterCreator = () => {
   }
 
   if (loading) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '60vh',
-        }}
-      >
-        <CircularProgress />
-      </Box>
-    )
+    return <LoadingState variant="spinner" text="Loading characters..." />
   }
 
   return (
@@ -155,11 +157,14 @@ const CharacterCreator = () => {
             Create New Character
           </Button>
         </Box>
+        
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
+          <ErrorDisplay 
+            error={error} 
+            onRetry={error.retry ? fetchCharacters : undefined}
+          />
         )}
+
         {characters.length === 0 ? (
           <Paper sx={{ p: 4, textAlign: 'center' }}>
             <Typography variant="h6" gutterBottom>

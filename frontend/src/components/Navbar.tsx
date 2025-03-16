@@ -9,16 +9,19 @@ import {
   Menu,
   MenuItem,
   Box,
-  Avatar
+  Avatar,
+  CircularProgress
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import useAuth from '../hooks/useAuth'
+import ErrorDisplay from './ErrorDisplay'
 
 const Navbar: React.FC = () => {
-  const { isAuthenticated, logout, user } = useAuth()
+  const { isAuthenticated, logout, user, error } = useAuth()
   const navigate = useNavigate()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [mobileAnchorEl, setMobileAnchorEl] = useState<null | HTMLElement>(null)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget)
@@ -36,11 +39,19 @@ const Navbar: React.FC = () => {
     setMobileAnchorEl(null)
   }
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-    handleClose()
-    handleMobileClose()
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      await logout()
+      navigate('/login')
+      handleClose()
+      handleMobileClose()
+    } catch (err) {
+      // Error will be handled by AuthContext
+      console.error('Logout failed:', err)
+    } finally {
+      setIsLoggingOut(false)
+    }
   }
 
   return (
@@ -91,7 +102,19 @@ const Navbar: React.FC = () => {
                 <MenuItem onClick={handleMobileClose} component={RouterLink} to="/story-builder">Story Builder</MenuItem>
                 <MenuItem onClick={handleMobileClose} component={RouterLink} to="/stories">My Stories</MenuItem>
                 <MenuItem onClick={handleMobileClose} component={RouterLink} to="/characters">Characters</MenuItem>
-                <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                <MenuItem 
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                >
+                  {isLoggingOut ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CircularProgress size={20} sx={{ mr: 1 }} />
+                      Logging out...
+                    </Box>
+                  ) : (
+                    'Logout'
+                  )}
+                </MenuItem>
               </>
             ) : (
               <>
@@ -117,7 +140,7 @@ const Navbar: React.FC = () => {
               </Button>
               <Box sx={{ ml: 2 }}>
                 <IconButton onClick={handleMenu} sx={{ p: 0 }}>
-                  <Avatar alt={user?.username} src="/static/images/avatar/1.jpg" />
+                  <Avatar alt={user?.username} src={user?.avatar_url} />
                 </IconButton>
                 <Menu
                   id="menu-appbar"
@@ -135,7 +158,19 @@ const Navbar: React.FC = () => {
                   onClose={handleClose}
                 >
                   <MenuItem component={RouterLink} to="/profile" onClick={handleClose}>Profile</MenuItem>
-                  <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                  <MenuItem 
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <CircularProgress size={20} sx={{ mr: 1 }} />
+                        Logging out...
+                      </Box>
+                    ) : (
+                      'Logout'
+                    )}
+                  </MenuItem>
                 </Menu>
               </Box>
             </>

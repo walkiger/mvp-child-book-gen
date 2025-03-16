@@ -20,7 +20,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  SelectChangeEvent,
   IconButton,
   Tooltip,
   AlertTitle

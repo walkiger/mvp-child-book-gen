@@ -18,10 +18,11 @@ const LoadingState: React.FC<LoadingStateProps> = ({
 }) => {
   if (variant === 'skeleton') {
     return (
-      <Box sx={{ width, my: 2 }}>
+      <Box sx={{ width, my: 2, height }} data-testid="loading-container">
         {Array.from({ length: skeletonCount }).map((_, index) => (
           <Skeleton
             key={index}
+            data-testid="skeleton"
             variant="rectangular"
             height={typeof height === 'number' ? height : 100}
             sx={{ mb: 2, borderRadius: 1 }}
@@ -34,6 +35,7 @@ const LoadingState: React.FC<LoadingStateProps> = ({
 
   return (
     <Box
+      data-testid="loading-container"
       sx={{
         display: 'flex',
         flexDirection: 'column',

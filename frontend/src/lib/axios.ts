@@ -1,12 +1,16 @@
+/// <reference types="vite/client" />
+
 import axios from 'axios'
+import { formatApiError } from './errorHandling'
 
 // Create axios instance
 const instance = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   timeout: 30000, // 30 seconds
   withCredentials: true,
   headers: {
     'Accept': 'application/json',
+    'Content-Type': 'application/json',
   },
   xsrfCookieName: 'csrftoken',
   xsrfHeaderName: 'X-CSRFToken',
@@ -15,24 +19,20 @@ const instance = axios.create({
 // Add request interceptor
 instance.interceptors.request.use(
   (config) => {
-    // Add authorization header if token exists
+    // Get token from localStorage
     const token = localStorage.getItem('token')
+    
+    // If token exists, add it to request headers
     if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`
-    }
-
-    // Set Content-Type based on data type
-    if (config.data instanceof URLSearchParams) {
-      config.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-      // Convert URLSearchParams to string
-      config.data = config.data.toString()
-    } else if (!(config.data instanceof FormData)) {
-      config.headers['Content-Type'] = 'application/json'
+      config.headers.Authorization = `Bearer ${token}`
     }
 
     return config
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('Request error:', error)
+    return Promise.reject(formatApiError(error))
+  }
 )
 
 // Add response interceptor
@@ -50,28 +50,42 @@ instance.interceptors.response.use(
     }
     return response
   },
-  (error) => {
-    // Handle response errors
-    if (error.response) {
-      // Handle rate limit error
-      if (error.response.status === 429) {
-        // Store rate limit info
-        window.rateLimitInfo = {
-          requests: 0,
-          tokens: 0,
-          resetIn: parseInt(error.response.headers['x-ratelimit-reset'] || '60'),
-          timestamp: Date.now()
-        }
-      }
-      
-      // Handle token expiration
-      if (error.response.status === 401) {
-        // Redirect to login if token is invalid/expired
+  async (error) => {
+    const originalRequest = error.config
+
+    // Handle token refresh
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+
+      try {
+        // Try to refresh token
+        const response = await instance.post('/api/auth/refresh')
+        const { access_token } = response.data
+
+        // Update token in localStorage
+        localStorage.setItem('token', access_token)
+
+        // Update Authorization header
+        originalRequest.headers.Authorization = `Bearer ${access_token}`
+
+        // Retry the original request
+        return instance(originalRequest)
+      } catch (refreshError) {
+        // If refresh fails, clear token and reject with original error
         localStorage.removeItem('token')
-        window.location.href = '/login'
+        console.error('Token refresh failed:', refreshError)
+        return Promise.reject(formatApiError(error))
       }
     }
-    return Promise.reject(error)
+
+    // Handle other errors
+    console.error('Response error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    })
+
+    return Promise.reject(formatApiError(error))
   }
 )
 

@@ -9,11 +9,12 @@ import {
   CardMedia,
   CardActions,
   Button,
-  CircularProgress,
-  Alert,
   Paper,
 } from '@mui/material'
 import useAuth from '../hooks/useAuth'
+import LoadingState from '../components/LoadingState'
+import ErrorDisplay from '../components/ErrorDisplay'
+import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling'
 
 interface Story {
   id: number
@@ -31,22 +32,26 @@ const MyStories = () => {
   const { isAuthenticated } = useAuth()
   const [stories, setStories] = useState<Story[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string>('')
+  const [error, setError] = useState<ApiError | null>(null)
+
+  const fetchStories = async () => {
+    try {
+      const response = await fetch('/api/stories')
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const data = await response.json()
+      setStories(data)
+      setError(null)
+    } catch (err) {
+      const apiError = formatApiError(err)
+      setError(apiError)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchStories = async () => {
-      try {
-        // TODO: Implement API call to fetch stories
-        // const response = await fetch('/api/stories')
-        // const data = await response.json()
-        // setStories(data)
-      } catch (err) {
-        setError('Failed to load stories. Please try again.')
-      } finally {
-        setLoading(false)
-      }
-    }
-
     if (isAuthenticated) {
       fetchStories()
     }
@@ -65,18 +70,7 @@ const MyStories = () => {
   }
 
   if (loading) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '60vh',
-        }}
-      >
-        <CircularProgress />
-      </Box>
-    )
+    return <LoadingState variant="spinner" text="Loading stories..." />
   }
 
   return (
@@ -86,9 +80,10 @@ const MyStories = () => {
           My Stories
         </Typography>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
+          <ErrorDisplay 
+            error={error} 
+            onRetry={error.retry ? fetchStories : undefined}
+          />
         )}
         {stories.length === 0 ? (
           <Paper sx={{ p: 4, textAlign: 'center' }}>

@@ -11,7 +11,6 @@ import {
   MenuItem,
   Slider,
   Paper,
-  CircularProgress,
   Alert,
   SelectChangeEvent,
   Card,
@@ -22,6 +21,9 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom'
 import useAuth from '../hooks/useAuth'
 import axios from '../lib/axios'
+import LoadingState from '../components/LoadingState'
+import ErrorDisplay from '../components/ErrorDisplay'
+import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling'
 
 interface Character {
   id: number
@@ -45,7 +47,7 @@ const StoryGenerator = () => {
   const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [loadingCharacters, setLoadingCharacters] = useState(true)
-  const [error, setError] = useState<string>('')
+  const [error, setError] = useState<ApiError | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [storyParams, setStoryParams] = useState<StoryParams>({
@@ -94,10 +96,18 @@ const StoryGenerator = () => {
   const fetchCharacters = async () => {
     setLoadingCharacters(true)
     try {
-      const response = await axios.get('/api/characters/')
+      const response = await retryOperation(async () => {
+        const res = await axios.get('/api/characters/')
+        if (!res.data) {
+          throw new Error('No data received from server')
+        }
+        return res
+      })
       setCharacters(response.data)
+      setError(null)
     } catch (err) {
-      setError('Failed to load characters. Please try again.')
+      const apiError = formatApiError(err)
+      setError(apiError)
       console.error('Error fetching characters:', err)
     } finally {
       setLoadingCharacters(false)
@@ -125,32 +135,53 @@ const StoryGenerator = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedCharacter) {
-      setError('Please select a character')
+      setError({
+        message: 'Please select a character',
+        code: 'VALIDATION_ERROR',
+        retry: false,
+        details: 'A character is required to generate a story.'
+      })
+      return
+    }
+
+    if (!storyParams.title.trim()) {
+      setError({
+        message: 'Please enter a story title',
+        code: 'VALIDATION_ERROR',
+        retry: false,
+        details: 'A title is required for your story.'
+      })
       return
     }
     
     setLoading(true)
-    setError('')
+    setError(null)
 
     try {
-      // Format parameters for API
-      const apiParams = {
-        title: storyParams.title,
-        age_group: storyParams.ageGroup,
-        story_tone: storyParams.tone,
-        moral_lesson: storyParams.moral,
-        page_count: storyParams.pageCount,
-        character_id: storyParams.character_id
-      }
-      
-      // Call story generation API
-      const response = await axios.post('/api/stories/', apiParams)
-      
-      // Redirect to the newly created story
-      navigate(`/stories/${response.data.id}`)
+      await retryOperation(async () => {
+        // Format parameters for API
+        const apiParams = {
+          title: storyParams.title.trim(),
+          age_group: storyParams.ageGroup,
+          story_tone: storyParams.tone,
+          moral_lesson: storyParams.moral,
+          page_count: storyParams.pageCount,
+          character_id: storyParams.character_id
+        }
+        
+        // Call story generation API
+        const response = await axios.post('/api/stories/', apiParams)
+        if (!response.data || !response.data.id) {
+          throw new Error('Invalid response from server')
+        }
+        
+        // Redirect to the newly created story
+        navigate(`/stories/${response.data.id}`)
+      })
     } catch (err) {
+      const apiError = formatApiError(err)
+      setError(apiError)
       console.error('Error generating story:', err)
-      setError('Failed to generate story. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -166,6 +197,10 @@ const StoryGenerator = () => {
         </Box>
       </Container>
     )
+  }
+
+  if (loadingCharacters) {
+    return <LoadingState variant="spinner" text="Loading characters..." />
   }
 
   return (
@@ -191,21 +226,19 @@ const StoryGenerator = () => {
           <Typography component="h1" variant="h4" gutterBottom>
             Generate Your Story
           </Typography>
+          
           {error && (
-            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
-              {error}
-            </Alert>
+            <ErrorDisplay 
+              error={error} 
+              onRetry={error.retry ? fetchCharacters : undefined}
+            />
           )}
           
           <Box sx={{ width: '100%', mb: 4 }}>
             <Typography variant="h6" gutterBottom>
               1. Select a Character
             </Typography>
-            {loadingCharacters ? (
-              <Box display="flex" justifyContent="center" mt={2}>
-                <CircularProgress />
-              </Box>
-            ) : characters.length === 0 ? (
+            {characters.length === 0 ? (
               <Alert severity="info" sx={{ mb: 2 }}>
                 You don't have any characters yet. <Button onClick={() => navigate('/characters/create')}>Create a character</Button> first.
               </Alert>
@@ -219,6 +252,7 @@ const StoryGenerator = () => {
                     value={storyParams.character_id.toString()}
                     label="Character"
                     onChange={handleCharacterSelect}
+                    error={Boolean(error?.code === 'VALIDATION_ERROR' && !selectedCharacter)}
                   >
                     {characters.map((character) => (
                       <MenuItem key={character.id} value={character.id.toString()}>
@@ -229,25 +263,28 @@ const StoryGenerator = () => {
                 </FormControl>
                 
                 {selectedCharacter && (
-                  <Card sx={{ mt: 2, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                    {selectedCharacter.image_path && (
-                      <CardMedia
-                        component="img"
-                        sx={{ width: 120, height: 120, objectFit: 'contain' }}
-                        image={selectedCharacter.image_path}
-                        alt={selectedCharacter.name}
-                      />
-                    )}
-                    <Box sx={{ p: 2 }}>
-                      <Typography variant="h6">{selectedCharacter.name}</Typography>
-                      <Box display="flex" flexWrap="wrap" gap={0.5} mt={1}>
-                        {selectedCharacter.traits.map((trait) => (
-                          <Typography key={trait} variant="body2" sx={{ bgcolor: 'grey.100', px: 1, py: 0.5, borderRadius: 1 }}>
-                            {trait}
+                  <Card sx={{ mt: 2, mb: 4 }}>
+                    <Grid container>
+                      {selectedCharacter.image_path && (
+                        <Grid item xs={12} sm={4}>
+                          <CardMedia
+                            component="img"
+                            height="200"
+                            image={selectedCharacter.image_path}
+                            alt={selectedCharacter.name}
+                            sx={{ objectFit: 'contain' }}
+                          />
+                        </Grid>
+                      )}
+                      <Grid item xs={12} sm={selectedCharacter.image_path ? 8 : 12}>
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="h6">{selectedCharacter.name}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Traits: {selectedCharacter.traits.join(', ')}
                           </Typography>
-                        ))}
-                      </Box>
-                    </Box>
+                        </Box>
+                      </Grid>
+                    </Grid>
                   </Card>
                 )}
               </>
@@ -262,95 +299,94 @@ const StoryGenerator = () => {
             </Typography>
             
             <TextField
-              margin="normal"
-              required
               fullWidth
-              id="title"
+              margin="normal"
               label="Story Title"
               name="title"
               value={storyParams.title}
               onChange={handleChange}
+              error={Boolean(error?.code === 'VALIDATION_ERROR' && !storyParams.title.trim())}
+              helperText={error?.code === 'VALIDATION_ERROR' && !storyParams.title.trim() ? 'Title is required' : ''}
+              disabled={loading}
             />
             
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth margin="normal">
-                  <InputLabel id="age-group-label">Age Group</InputLabel>
-                  <Select
-                    labelId="age-group-label"
-                    id="ageGroup"
-                    name="ageGroup"
-                    value={storyParams.ageGroup}
-                    label="Age Group"
-                    onChange={handleChange}
-                  >
-                    <MenuItem value="1-2">1-2 years</MenuItem>
-                    <MenuItem value="3-6">3-6 years</MenuItem>
-                    <MenuItem value="6-9">6-9 years</MenuItem>
-                    <MenuItem value="10-12">10-12 years</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth margin="normal">
-                  <InputLabel id="tone-label">Story Tone</InputLabel>
-                  <Select
-                    labelId="tone-label"
-                    id="tone"
-                    name="tone"
-                    value={storyParams.tone}
-                    label="Story Tone"
-                    onChange={handleChange}
-                  >
-                    <MenuItem value="whimsical">Whimsical</MenuItem>
-                    <MenuItem value="educational">Educational</MenuItem>
-                    <MenuItem value="adventurous">Adventurous</MenuItem>
-                    <MenuItem value="calming">Calming</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Age Group</InputLabel>
+              <Select
+                name="ageGroup"
+                value={storyParams.ageGroup}
+                label="Age Group"
+                onChange={handleChange}
+                disabled={loading}
+              >
+                <MenuItem value="3-6">3-6 years</MenuItem>
+                <MenuItem value="7-9">7-9 years</MenuItem>
+                <MenuItem value="10-12">10-12 years</MenuItem>
+              </Select>
+            </FormControl>
             
             <FormControl fullWidth margin="normal">
-              <InputLabel id="moral-label">Moral Lesson</InputLabel>
+              <InputLabel>Story Tone</InputLabel>
               <Select
-                labelId="moral-label"
-                id="moral"
+                name="tone"
+                value={storyParams.tone}
+                label="Story Tone"
+                onChange={handleChange}
+                disabled={loading}
+              >
+                <MenuItem value="whimsical">Whimsical</MenuItem>
+                <MenuItem value="educational">Educational</MenuItem>
+                <MenuItem value="adventurous">Adventurous</MenuItem>
+                <MenuItem value="funny">Funny</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Moral Lesson</InputLabel>
+              <Select
                 name="moral"
                 value={storyParams.moral}
                 label="Moral Lesson"
                 onChange={handleChange}
+                disabled={loading}
               >
                 <MenuItem value="kindness">Kindness</MenuItem>
-                <MenuItem value="courage">Courage</MenuItem>
-                <MenuItem value="friendship">Friendship</MenuItem>
                 <MenuItem value="honesty">Honesty</MenuItem>
                 <MenuItem value="perseverance">Perseverance</MenuItem>
+                <MenuItem value="friendship">Friendship</MenuItem>
+                <MenuItem value="responsibility">Responsibility</MenuItem>
               </Select>
             </FormControl>
             
-            <Box sx={{ mt: 2, mb: 2 }}>
-              <Typography gutterBottom>Number of Pages</Typography>
+            <Box sx={{ mt: 3 }}>
+              <Typography gutterBottom>Number of Pages: {storyParams.pageCount}</Typography>
               <Slider
                 value={storyParams.pageCount}
                 onChange={handleSliderChange}
-                min={3}
-                max={10}
+                min={5}
+                max={20}
+                step={1}
                 marks
                 valueLabelDisplay="auto"
+                disabled={loading}
               />
             </Box>
             
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              disabled={loading || !selectedCharacter}
-              sx={{ mt: 3, mb: 2 }}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Generate Story'}
-            </Button>
+            <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                disabled={loading || !selectedCharacter}
+                sx={{ minWidth: 200 }}
+              >
+                {loading ? (
+                  <LoadingState variant="spinner" text="Generating Story..." height={24} />
+                ) : (
+                  'Generate Story'
+                )}
+              </Button>
+            </Box>
           </Box>
         </Paper>
       </Box>

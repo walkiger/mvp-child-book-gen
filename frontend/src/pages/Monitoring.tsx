@@ -27,9 +27,11 @@ import ErrorIcon from '@mui/icons-material/Error';
 import WarningIcon from '@mui/icons-material/Warning';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StorageIcon from '@mui/icons-material/Storage';
-import SpeedIcon from '@mui/icons-material/Speed';
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import useAuth from '../hooks/useAuth';
+import LoadingState from '../components/LoadingState';
+import ErrorDisplay from '../components/ErrorDisplay';
+import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling';
 
 // Define styled components
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -68,7 +70,7 @@ const TabPanel = (props: { children?: React.ReactNode; index: number; value: num
 // Main component
 const Monitoring: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [metrics, setMetrics] = useState<any>(null);
   const [tabValue, setTabValue] = useState<number>(0);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -80,21 +82,26 @@ const Monitoring: React.FC = () => {
   const fetchMonitoringData = async () => {
     setRefreshing(true);
     try {
-      const response = await fetch('/api/monitoring/current', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await retryOperation(async () => {
+        const res = await fetch('/api/monitoring/current', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`Error fetching monitoring data: ${response.statusText}`);
-      }
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+
+        return res;
+      });
 
       const data = await response.json();
       setMetrics(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch monitoring data');
+    } catch (err) {
+      const apiError = formatApiError(err);
+      setError(apiError);
       console.error('Error fetching monitoring data:', err);
     } finally {
       setLoading(false);
@@ -105,15 +112,26 @@ const Monitoring: React.FC = () => {
   // Trigger a refresh of all metrics
   const triggerRefresh = async () => {
     try {
-      await fetch('/api/monitoring/refresh', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      await retryOperation(async () => {
+        const response = await fetch('/api/monitoring/refresh', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return response;
       });
+      
       // After triggering refresh, fetch the updated data
       fetchMonitoringData();
-    } catch (err: any) {
+    } catch (err) {
+      const apiError = formatApiError(err);
+      setError(apiError);
       console.error('Error triggering refresh:', err);
     }
   };
@@ -121,19 +139,26 @@ const Monitoring: React.FC = () => {
   // Add a function to fetch route health data
   const fetchRouteHealth = async () => {
     try {
-      const response = await fetch('/api/monitoring/routes', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await retryOperation(async () => {
+        const res = await fetch('/api/monitoring/routes', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`Error fetching route health data: ${response.statusText}`);
-      }
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+
+        return res;
+      });
 
       const data = await response.json();
       setRouteHealth(data);
-    } catch (err: any) {
+      setError(null);
+    } catch (err) {
+      const apiError = formatApiError(err);
+      setError(apiError);
       console.error('Error fetching route health data:', err);
     }
   };
@@ -142,11 +167,19 @@ const Monitoring: React.FC = () => {
   const triggerRouteHealthCheck = async () => {
     setLoadingRoutes(true);
     try {
-      await fetch('/api/monitoring/check-routes', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      await retryOperation(async () => {
+        const response = await fetch('/api/monitoring/check-routes', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return response;
       });
       
       // Wait a moment for the background task to run
@@ -154,7 +187,9 @@ const Monitoring: React.FC = () => {
         fetchRouteHealth();
         setLoadingRoutes(false);
       }, 2000);
-    } catch (err: any) {
+    } catch (err) {
+      const apiError = formatApiError(err);
+      setError(apiError);
       console.error('Error triggering route health check:', err);
       setLoadingRoutes(false);
     }
@@ -176,6 +211,7 @@ const Monitoring: React.FC = () => {
 
   // Handle tab change
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    event.preventDefault(); // Prevent default behavior
     setTabValue(newValue);
   };
 
@@ -201,11 +237,9 @@ const Monitoring: React.FC = () => {
 
   if (loading && !metrics) {
     return (
-      <Container>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-          <CircularProgress size={60} />
-        </Box>
-      </Container>
+      <Box>
+        <LoadingState variant="spinner" text="Loading monitoring data..." />
+      </Box>
     );
   }
 
@@ -227,9 +261,12 @@ const Monitoring: React.FC = () => {
         </Box>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
+          <Box sx={{ mb: 3 }}>
+            <ErrorDisplay 
+              error={error} 
+              onRetry={error.retry ? fetchMonitoringData : undefined}
+            />
+          </Box>
         )}
 
         <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 2 }}>

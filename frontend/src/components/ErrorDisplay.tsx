@@ -3,15 +3,17 @@ import { Alert, AlertTitle, Button, Box } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { ApiError } from '../lib/errorHandling';
 
-interface ErrorDisplayProps {
+export interface ErrorDisplayProps {
   error: ApiError;
   onRetry?: () => void;
+  onClose?: () => void;
   fullPage?: boolean;
 }
 
 const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   error,
   onRetry,
+  onClose,
   fullPage = false
 }) => {
   const showRetry = onRetry && error.retry;
@@ -19,6 +21,7 @@ const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   const content = (
     <Alert
       severity="error"
+      onClose={onClose}
       action={
         showRetry ? (
           <Button
@@ -46,6 +49,7 @@ const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   if (fullPage) {
     return (
       <Box
+        data-testid="error-display-container"
         sx={{
           display: 'flex',
           justifyContent: 'center',
