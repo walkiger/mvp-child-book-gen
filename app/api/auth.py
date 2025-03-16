@@ -21,6 +21,18 @@ from app.database.models import User
 from app.database.session import get_db
 from app.schemas.auth import Token, UserCreate, UserResponse
 from app.config import settings
+from app.core.auth_errors import (
+    AuthenticationError,
+    RegistrationError,
+    TokenError,
+    PermissionError,
+    UserNotFoundError,
+    UserValidationError
+)
+from app.core.error_handling import setup_logger
+
+# Set up logger
+logger = setup_logger("auth", "logs/auth.log")
 
 router = APIRouter(tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -31,52 +43,60 @@ async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
     """
     Register a new user.
     """
-    print(f"Registration attempt for email: {user.email}")
-    
-    # Check if user already exists
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
-        print(f"User already exists with email: {user.email}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Create new user
-    print("Creating new user...")
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        email=user.email,
-        username=user.username,
-        password_hash=hashed_password,
-        first_name=user.first_name,
-        last_name=user.last_name
-    )
-    
     try:
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        print(f"User created successfully with ID: {db_user.id}")
+        logger.info(f"Registration attempt for email: {user.email}")
+        
+        # Check if user already exists
+        db_user = db.query(User).filter(User.email == user.email).first()
+        if db_user:
+            logger.warning(f"User already exists with email: {user.email}")
+            raise RegistrationError(
+                message="Email already registered",
+                details=f"A user with email {user.email} already exists"
+            )
+        
+        logger.info("Creating new user...")
+        try:
+            # Create new user
+            hashed_password = get_password_hash(user.password)
+            db_user = User(
+                email=user.email,
+                username=user.username,
+                password_hash=hashed_password,
+                first_name=user.first_name,
+                last_name=user.last_name
+            )
+            
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            logger.info(f"User created successfully with ID: {db_user.id}")
+            
+            # Create access token
+            access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            access_token = create_access_token(
+                data={"sub": user.email}, expires_delta=access_token_expires
+            )
+            
+            return {"access_token": access_token, "token_type": "bearer"}
+            
+        except Exception as e:
+            logger.error(f"Error creating user: {str(e)}")
+            db.rollback()
+            raise RegistrationError(
+                message="Failed to create user",
+                details=str(e)
+            )
+            
+    except RegistrationError:
+        # Re-raise known errors
+        raise
     except Exception as e:
-        print(f"Error creating user: {str(e)}")
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user"
+        logger.error(f"Unexpected error during registration: {str(e)}")
+        raise RegistrationError(
+            message="Failed to register user",
+            details=str(e)
         )
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": db_user.email}, expires_delta=access_token_expires
-    )
-    print("Access token created")
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer"
-    }
 
 
 @router.post("/login", response_model=Token)
@@ -85,56 +105,46 @@ async def login(
     db: Session = Depends(get_db)
 ) -> Any:
     """
-    Get access token for valid credentials.
+    OAuth2 compatible token login, get an access token for future requests.
     """
-    print(f"Login attempt for username: {form_data.username}")
-    
-    # Find user by email
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user:
-        print(f"User not found with email: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+        logger.info(f"Login attempt for user: {form_data.username}")
+        
+        # Find user by email
+        user = db.query(User).filter(User.email == form_data.username).first()
+        if not user:
+            logger.warning(f"User not found: {form_data.username}")
+            raise AuthenticationError(
+                message="Incorrect email or password",
+                details="User not found"
+            )
+        
+        # Verify password
+        if not verify_password(form_data.password, user.password_hash):
+            logger.warning(f"Invalid password for user: {form_data.username}")
+            raise AuthenticationError(
+                message="Incorrect email or password",
+                details="Invalid password"
+            )
+        
+        # Create access token
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.email}, expires_delta=access_token_expires
         )
-    
-    # Verify password
-    if not verify_password(form_data.password, user.password_hash):
-        print(f"Invalid password for user: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+        
+        logger.info(f"Login successful for user: {form_data.username}")
+        return {"access_token": access_token, "token_type": "bearer"}
+        
+    except AuthenticationError:
+        # Re-raise known errors
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during login: {str(e)}")
+        raise AuthenticationError(
+            message="Login failed",
+            details=str(e)
         )
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    # Include is_admin status in the token data
-    token_data = {
-        "sub": user.email,
-        "is_admin": getattr(user, "is_admin", False)
-    }
-    
-    access_token = create_access_token(
-        data=token_data,
-        expires_delta=access_token_expires
-    )
-    
-    print(f"Login successful for user: {user.email}")
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "is_admin": getattr(user, "is_admin", False)
-        }
-    }
 
 
 @router.get("/me", response_model=UserResponse)
@@ -155,11 +165,19 @@ async def check_user(
     """
     Check if a user exists (debug route).
     """
-    user = db.query(User).filter(User.email == email).first()
-    if user:
-        return {
-            "exists": True,
-            "email": user.email,
-            "username": user.username
-        }
-    return {"exists": False}
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            return {
+                "exists": True,
+                "email": user.email,
+                "username": user.username
+            }
+        return {"exists": False}
+        
+    except Exception as e:
+        logger.error(f"Error checking user existence: {str(e)}")
+        raise UserValidationError(
+            message="Failed to check user existence",
+            details=str(e)
+        )
