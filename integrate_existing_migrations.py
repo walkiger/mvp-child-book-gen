@@ -1,5 +1,5 @@
 """
-Script to integrate existing database migrations with Alembic.
+Script to integrate existing database migrations into Alembic.
 
 This script:
 1. Creates Alembic versions for existing migrations
@@ -8,175 +8,123 @@ This script:
 """
 
 import os
+import sys
 import re
-import datetime
+import time
 import importlib.util
 import subprocess
-from pathlib import Path
+from datetime import datetime
+from typing import List, Tuple
 
-# Configuration
+# Constants
 ALEMBIC_VERSIONS_DIR = os.path.join('alembic', 'versions')
 MIGRATIONS_DIR = os.path.join('app', 'database', 'migrations')
 
-def ensure_alembic_setup():
-    """Ensure Alembic is set up correctly"""
+def ensure_directories():
+    """Ensure required directories exist"""
     if not os.path.exists(ALEMBIC_VERSIONS_DIR):
-        print(f"ERROR: Alembic versions directory not found at {ALEMBIC_VERSIONS_DIR}")
-        print("Please run setup_project_env.py first to set up Alembic")
-        return False
-    return True
+        print(f"Creating {ALEMBIC_VERSIONS_DIR} directory...")
+        os.makedirs(ALEMBIC_VERSIONS_DIR)
+        print("✓ Created successfully")
+    else:
+        print(f"✓ {ALEMBIC_VERSIONS_DIR} directory exists")
 
-def get_existing_migrations():
-    """Get list of existing migrations from the app/database/migrations directory"""
     if not os.path.exists(MIGRATIONS_DIR):
-        print(f"No existing migrations found in {MIGRATIONS_DIR}")
-        return []
-    
-    migration_files = [f for f in os.listdir(MIGRATIONS_DIR) 
-                      if f.endswith('.py') and f != '__init__.py']
-    
-    return sorted(migration_files)
+        print(f"Error: {MIGRATIONS_DIR} directory not found")
+        sys.exit(1)
+    else:
+        print(f"✓ {MIGRATIONS_DIR} directory exists")
 
-def extract_timestamp_from_migration(filename):
-    """Extract timestamp from migration filename if possible"""
-    match = re.search(r'migration_(\d{8})_(\d{6})', filename)
-    if match:
-        date_str = match.group(1)
-        time_str = match.group(2)
-        try:
-            year = int(date_str[:4])
-            month = int(date_str[4:6])
-            day = int(date_str[6:8])
-            hour = int(time_str[:2])
-            minute = int(time_str[2:4])
-            second = int(time_str[4:6])
-            return datetime.datetime(year, month, day, hour, minute, second)
-        except ValueError:
-            pass
+def get_migration_files() -> List[str]:
+    """Get list of migration files sorted by creation time"""
+    migration_files = []
+    for filename in os.listdir(MIGRATIONS_DIR):
+        if filename.endswith('.py') and not filename.startswith('__'):
+            file_path = os.path.join(MIGRATIONS_DIR, filename)
+            file_ctime = os.path.getctime(file_path)
+            migration_files.append((filename, file_ctime))
     
-    # If no valid timestamp found, use file creation time
-    file_path = os.path.join(MIGRATIONS_DIR, filename)
-    file_ctime = os.path.getctime(file_path)
-    return datetime.datetime.fromtimestamp(file_ctime)
+    # Sort by creation time
+    migration_files.sort(key=lambda x: x[1])
+    return [f[0] for f in migration_files]
 
-def generate_alembic_version_for_migration(migration_file, timestamp):
-    """Generate an Alembic version file for an existing migration"""
-    # Generate a unique revision ID
-    revision_id = timestamp.strftime('%Y%m%d%H%M%S')
+def process_migration(migration_file: str, prev_revision: str) -> Tuple[str, str]:
+    """Process a migration file and return its revision ID and next revision ID"""
+    print(f"\nProcessing migration: {migration_file}")
     
-    # Load the migration module to get its content
+    # Import the migration module
+    module_name = f"migration_{int(time.time())}"
     migration_path = os.path.join(MIGRATIONS_DIR, migration_file)
-    module_name = f"app.database.migrations.{migration_file[:-3]}"
     
-    spec = importlib.util.spec_from_file_location(module_name, migration_path)
-    migration_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration_module)
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, migration_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as e:
+        print(f"Error importing migration {migration_file}: {e}")
+        return None, None
     
-    # Extract upgrade and downgrade functions
-    has_upgrade = hasattr(migration_module, 'upgrade')
-    has_downgrade = hasattr(migration_module, 'downgrade')
+    # Generate revision ID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    revision = f"{timestamp}_{migration_file[:-3]}"
     
-    if not has_upgrade:
-        print(f"WARNING: Migration {migration_file} has no upgrade function!")
-        return None
-    
-    # Create alembic version file
-    version_filename = f"{revision_id}_{migration_file[:-3]}.py"
+    # Create Alembic version file
+    version_filename = f"{revision}.py"
     version_path = os.path.join(ALEMBIC_VERSIONS_DIR, version_filename)
     
+    print(f"Creating version file: {version_filename}")
     with open(version_path, 'w') as f:
-        f.write(f'''"""
-Migration converted from {migration_file}
-"""
+        f.write(f"""\"\"\"Migration {migration_file}
 
-import sqlalchemy as sa
+Revision ID: {revision}
+Revises: {prev_revision or ''}
+Create Date: {datetime.now().isoformat()}
+\"\"\"
+
 from alembic import op
+import sqlalchemy as sa
 
-# revision identifiers, used by Alembic
-revision = '{revision_id}'
-down_revision = None
+# revision identifiers
+revision = '{revision}'
+down_revision = '{prev_revision}'
 branch_labels = None
 depends_on = None
 
 def upgrade():
-    # Call the original upgrade function with the required connection
-    conn = op.get_bind()
-    # The original function expects an engine, but bind should work
-    from app.database.migrations.{migration_file[:-3]} import upgrade as original_upgrade
-    original_upgrade(conn)
+    {module.upgrade.__doc__ or '"""Pass"""'}
+    {inspect.getsource(module.upgrade)}
 
-''')
-        if has_downgrade:
-            f.write('''
 def downgrade():
-    conn = op.get_bind()
-    from app.database.migrations.{migration_file[:-3]} import downgrade as original_downgrade
-    original_downgrade(conn)
-''')
-        else:
-            f.write('''
-def downgrade():
-    # No downgrade function in original migration
-    pass
-''')
+    {module.downgrade.__doc__ or '"""Pass"""'}
+    {inspect.getsource(module.downgrade)}
+""")
     
-    print(f"Created Alembic version file: {version_filename}")
-    return version_filename
-
-def mark_migration_as_applied(version_file):
-    """Mark a migration as applied in Alembic's version table"""
-    # Extract revision ID from filename
-    match = re.search(r'^(\w+)_', version_file)
-    if not match:
-        print(f"WARNING: Could not extract revision ID from {version_file}")
-        return
-    
-    revision_id = match.group(1)
-    
-    # Run alembic stamp command
-    cmd = ['alembic', 'stamp', revision_id]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"ERROR: Failed to mark migration {version_file} as applied")
-        print(f"Error: {result.stderr}")
-    else:
-        print(f"Marked migration {version_file} as applied (revision {revision_id})")
+    return revision, version_filename
 
 def main():
-    """Main function to integrate existing migrations with Alembic"""
-    print("Integrating existing migrations with Alembic...")
+    """Main function to run the migration integration"""
+    print("Integrating existing migrations into Alembic...")
+    ensure_directories()
     
-    if not ensure_alembic_setup():
+    migration_files = get_migration_files()
+    if not migration_files:
+        print("\nNo migration files found.")
         return
     
-    # Get existing migrations
-    migrations = get_existing_migrations()
+    print(f"\nFound {len(migration_files)} migration files:")
+    for f in migration_files:
+        print(f"  • {f}")
     
-    if not migrations:
-        print("No migrations to integrate")
-        return
+    prev_revision = None
+    for migration_file in migration_files:
+        revision, version_file = process_migration(migration_file, prev_revision)
+        if revision:
+            print(f"✓ Created {version_file}")
+            prev_revision = revision
+        else:
+            print(f"✗ Failed to process {migration_file}")
     
-    print(f"Found {len(migrations)} existing migrations")
-    
-    # Process each migration
-    for migration_file in migrations:
-        print(f"\nProcessing migration: {migration_file}")
-        
-        # Extract timestamp
-        timestamp = extract_timestamp_from_migration(migration_file)
-        
-        # Create Alembic version
-        version_file = generate_alembic_version_for_migration(migration_file, timestamp)
-        
-        if version_file:
-            # Mark as applied
-            mark_migration_as_applied(version_file)
-    
-    print("\nMigration integration completed")
-    print("\nYou can now use Alembic for future migrations:")
-    print("  alembic revision --autogenerate -m \"your migration description\"")
-    print("  alembic upgrade head")
+    print("\nMigration integration complete!")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 

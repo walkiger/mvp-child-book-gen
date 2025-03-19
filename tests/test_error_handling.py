@@ -1,17 +1,15 @@
 """
 Comprehensive tests for the error handling framework.
 
-Note: This project uses standard-crypt (installed via pip) as a replacement for Python's
-built-in crypt module, which is deprecated in Python 3.11 and will be removed in 3.13.
-This is to address the deprecation warning from passlib, which currently depends on
-the crypt module. standard-crypt is a pure Python, platform-independent implementation
-that serves as a drop-in replacement.
+This module tests the unified error handling system including ErrorContext,
+standardized error codes, severity levels, and error propagation across all application layers.
 """
 
 import sys
 import logging
 import sqlite3
 import pytest
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, call
 import os
 from pathlib import Path
@@ -20,284 +18,157 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from starlette.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 # Import error handling utilities
-from utils.error_handling import (
-    BaseError, ServerError, DatabaseError, ConfigError, 
-    ResourceError, InputError, ImageError, ErrorSeverity,
-    handle_error, setup_logger, with_error_handling, with_retry,
-    CircuitBreaker, CircuitState
+from app.core.errors.base import (
+    ErrorContext, ErrorSeverity, BaseError, 
+    DatabaseError, ValidationError, APIError,
+    RetryableError, CriticalError, WarningError,
+    ErrorCode, ErrorSource
 )
-from management.errors import ProcessError, db_error_handler
+from app.core.errors.api import with_api_error_handling
+from app.core.errors.db import with_db_error_handling
+from app.core.errors.validation import with_validation_error_handling
+from app.core.errors.retry import with_retry
+from app.core.utils.datetime import get_utc_now
 
-
-def test_base_error_class():
-    """Test the base BaseError class."""
-    # Test basic error creation
-    error = BaseError("Test error message")
-    assert "ERROR [E-GEN-001]: Test error message" in str(error)
-    assert error.severity == ErrorSeverity.ERROR
-    assert error.http_status_code == 500
+def test_error_context():
+    """Test the ErrorContext functionality."""
+    # Test basic context creation
+    context = ErrorContext(
+        source="test.module",
+        operation="test_operation",
+        error_code="TEST-OP-001",
+        severity=ErrorSeverity.ERROR
+    )
+    assert context.source == "test.module"
+    assert context.operation == "test_operation"
+    assert context.error_code == "TEST-OP-001"
+    assert context.severity == ErrorSeverity.ERROR
+    assert isinstance(context.timestamp, datetime)
     
-    # Test with custom attributes
-    error = BaseError(
-        "Test error message",
+    # Test context with additional data
+    context_with_data = ErrorContext(
+        source="test.module",
+        operation="test_operation",
+        error_code="TEST-OP-002",
         severity=ErrorSeverity.WARNING,
-        error_code="E-TEST-001",
-        http_status_code=400,
-        details="Additional details",
-        custom_field="Custom value"
+        additional_data={"key": "value"}
     )
-    assert "WARNING [E-TEST-001]: Test error message - Additional details" in str(error)
-    assert error.severity == ErrorSeverity.WARNING
-    assert error.http_status_code == 400
-    assert error.kwargs["custom_field"] == "Custom value"
+    assert context_with_data.additional_data["key"] == "value"
     
-    # Test dictionary conversion
-    error_dict = error.to_dict()
-    assert error_dict["error_code"] == "E-TEST-001"
-    assert error_dict["severity"] == "WARNING"
-    assert error_dict["message"] == "Test error message"
-    assert error_dict["details"] == "Additional details"
-    assert error_dict["context"]["custom_field"] == "Custom value"
+    # Test context serialization
+    context_dict = context.to_dict()
+    assert context_dict["source"] == "test.module"
+    assert context_dict["error_code"] == "TEST-OP-001"
+    assert "timestamp" in context_dict
 
-    # Test error inheritance
-    class CustomError(BaseError):
-        def __init__(self, message, **kwargs):
-            super().__init__(message, error_code="E-CUSTOM-001", **kwargs)
+def test_validation_error_handling():
+    """Test validation error handling with ErrorContext."""
+    @with_validation_error_handling
+    def validate_user_data(data: dict):
+        if not data.get("username"):
+            ctx = ErrorContext(
+                source="test.validation",
+                operation="validate_user",
+                error_code="VAL-USER-001",
+                severity=ErrorSeverity.ERROR,
+                additional_data={"field": "username"}
+            )
+            raise ValidationError("Username is required", error_context=ctx)
+        return data
+
+    # Test validation failure
+    with pytest.raises(ValidationError) as exc_info:
+        validate_user_data({"email": "test@example.com"})
     
-    custom_error = CustomError("Custom error")
-    assert "ERROR [E-CUSTOM-001]" in str(custom_error)
+    error = exc_info.value
+    assert error.error_context.error_code == "VAL-USER-001"
+    assert error.error_context.source == "test.validation"
+    assert "Username is required" in str(error)
 
+    # Test successful validation
+    result = validate_user_data({"username": "testuser"})
+    assert result["username"] == "testuser"
 
-def test_database_error_formatting():
-    """Test DatabaseError message formatting."""
-    # Test basic database error
-    error = DatabaseError("Database connection failed")
-    assert str(error) == "Database connection failed"
+def test_api_error_handling():
+    """Test API error handling with ErrorContext."""
+    app = FastAPI()
     
-    # Test with db_path
-    error = DatabaseError("Database connection failed", db_path="/path/to/db.sqlite")
-    assert str(error) == "Database connection failed"
-    assert error.db_path == "/path/to/db.sqlite"
+    @app.get("/test")
+    @with_api_error_handling
+    async def test_endpoint():
+        ctx = ErrorContext(
+            source="test.api",
+            operation="get_data",
+            error_code="API-TEST-001",
+            severity=ErrorSeverity.ERROR
+        )
+        raise APIError("Failed to get data", error_context=ctx)
     
-    # Test with additional kwargs
-    error = DatabaseError(
-        "Database connection failed",
-        db_path="/path/to/db.sqlite",
-        error_code="E-DB-TEST",
-        details="Connection timeout"
-    )
-    assert str(error) == "Database connection failed"
-    assert error.error_code == "E-DB-TEST"
+    client = TestClient(app)
+    response = client.get("/test")
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "API-TEST-001"
+    assert response.json()["error"]["source"] == "test.api"
 
-    # Test with error details
-    error = DatabaseError("Permission denied", details="File is read-only")
-    assert str(error) == "Permission denied"
-    assert error.details == "File is read-only"
-
-
-def test_db_error_handler():
-    """Test database error handler decorator."""
-    @db_error_handler
-    def db_operation(db_path):
-        raise sqlite3.OperationalError("database is locked")
+def test_database_error_handling():
+    """Test database error handling with ErrorContext."""
+    @with_db_error_handling
+    def db_operation():
+        ctx = ErrorContext(
+            source="test.database",
+            operation="insert_data",
+            error_code="DB-INS-001",
+            severity=ErrorSeverity.ERROR,
+            additional_data={"table": "users"}
+        )
+        raise sqlite3.OperationalError("Database is locked")
     
     with pytest.raises(DatabaseError) as exc_info:
-        db_operation("test.db")
-    assert str(exc_info.value) == "Database is locked"
+        db_operation()
     
-    @db_error_handler
-    def db_operation_integrity(db_path):
-        raise sqlite3.IntegrityError("UNIQUE constraint failed")
-    
-    with pytest.raises(DatabaseError) as exc_info:
-        db_operation_integrity("test.db")
-    assert str(exc_info.value) == "Integrity error"
-    
-    @db_error_handler
-    def db_operation_corrupt(db_path):
-        raise sqlite3.DatabaseError("file is not a database")
-    
-    with pytest.raises(DatabaseError) as exc_info:
-        db_operation_corrupt("test.db")
-    assert str(exc_info.value) == "Database is corrupted"
+    error = exc_info.value
+    assert error.error_context.error_code == "DB-INS-001"
+    assert error.error_context.source == "test.database"
+    assert "Database is locked" in str(error)
 
-    # Test successful operation
-    @db_error_handler
-    def successful_operation(db_path):
-        return "success"
-    
-    result = successful_operation("test.db")
-    assert result == "success"
+def test_error_severity_handling():
+    """Test error severity level handling."""
+    for severity in ErrorSeverity:
+        ctx = ErrorContext(
+            source="test.severity",
+            operation="test_severity",
+            error_code=f"SEV-TEST-{severity.name}",
+            severity=severity
+        )
+        assert ctx.severity == severity
+        assert ctx.to_dict()["severity"] == severity.value
 
+def test_error_propagation():
+    """Test error propagation through multiple layers."""
+    @with_api_error_handling
+    @with_validation_error_handling
+    @with_db_error_handling
+    def complex_operation(data: dict):
+        if not data.get("id"):
+            ctx = ErrorContext(
+                source="test.complex",
+                operation="process_data",
+                error_code="PROC-VAL-001",
+                severity=ErrorSeverity.ERROR
+            )
+            raise ValidationError("ID is required", error_context=ctx)
+        return data
 
-def test_error_handling_decorator():
-    """Test the with_error_handling decorator."""
-    mock_logger = MagicMock()
+    with pytest.raises(ValidationError) as exc_info:
+        complex_operation({})
     
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        # Test handling of BaseError
-        @with_error_handling(logger_name="test")
-        def raise_base_error():
-            raise BaseError("Test error", severity=ErrorSeverity.WARNING)
-        
-        with pytest.raises(BaseError):
-            raise_base_error()
-        mock_logger.warning.assert_called_once()
-        
-        # Test handling of FileNotFoundError
-        mock_logger.reset_mock()
-        @with_error_handling(logger_name="test")
-        def raise_file_error():
-            raise FileNotFoundError("test.txt not found")
-        
-        with pytest.raises(ResourceError):
-            raise_file_error()
-        mock_logger.error.assert_called_once()
-        
-        # Test handling of generic exception
-        mock_logger.reset_mock()
-        @with_error_handling(logger_name="test", context="TestContext")
-        def raise_generic_error():
-            raise ValueError("Test value error")
-        
-        with pytest.raises(BaseError):
-            raise_generic_error()
-        mock_logger.error.assert_called_once()
-        assert "TestContext" in str(mock_logger.error.call_args[0][0])
-
-        # Test successful execution
-        mock_logger.reset_mock()
-        @with_error_handling(logger_name="test")
-        def successful_operation():
-            return "success"
-        
-        result = successful_operation()
-        assert result == "success"
-        assert not mock_logger.error.called
-
-
-def test_retry_decorator():
-    """Test the with_retry decorator."""
-    mock_logger = MagicMock()
-    attempts = []
-    
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        @with_retry(max_attempts=3, retry_delay=0.1)
-        def failing_function():
-            attempts.append(1)
-            raise ValueError("Test error")
-        
-        with pytest.raises(ValueError):
-            failing_function()
-        
-        assert len(attempts) == 3  # Should have tried 3 times
-        assert mock_logger.warning.call_count == 2  # Should have logged 2 retries
-
-        # Test successful retry
-        mock_logger.reset_mock()
-        success_attempts = []
-        
-        @with_retry(max_attempts=3, retry_delay=0.1)
-        def eventually_succeeds():
-            success_attempts.append(1)
-            if len(success_attempts) < 2:
-                raise ValueError("Temporary error")
-            return "success"
-        
-        result = eventually_succeeds()
-        assert result == "success"
-        assert len(success_attempts) == 2  # Should succeed on second attempt
-        assert mock_logger.warning.call_count == 1  # Should have logged 1 retry
-
-
-def test_circuit_breaker():
-    """Test the CircuitBreaker implementation."""
-    breaker = CircuitBreaker("test_service", failure_threshold=2, reset_timeout=0.1)
-    
-    @breaker
-    def service_call():
-        raise ServerError("Service unavailable")
-    
-    # First call - should fail normally
-    with pytest.raises(ServerError):
-        service_call()
-    assert breaker.state == CircuitState.CLOSED
-    
-    # Second call - should open the circuit
-    with pytest.raises(ServerError):
-        service_call()
-    assert breaker.state == CircuitState.OPEN
-    
-    # Third call - should fail fast with circuit open
-    with pytest.raises(ServerError) as exc_info:
-        service_call()
-    assert "Circuit for test_service is open" in str(exc_info.value)
-    
-    # Wait for reset timeout
-    import time
-    time.sleep(0.2)
-    
-    # Next call should be in HALF_OPEN state
-    with pytest.raises(ServerError):
-        service_call()
-    assert breaker.state == CircuitState.HALF_OPEN
-
-    # Test successful recovery
-    breaker = CircuitBreaker("recovery_test", failure_threshold=2, reset_timeout=0.1)
-    
-    @breaker
-    def recovering_service():
-        if breaker.failure_count < 2:
-            raise ServerError("Temporary failure")
-        return "success"
-    
-    # First call - should fail
-    with pytest.raises(ServerError):
-        recovering_service()
-    
-    # Second call - should fail and open circuit
-    with pytest.raises(ServerError):
-        recovering_service()
-    assert breaker.state == CircuitState.OPEN
-    
-    # Wait for reset
-    time.sleep(0.2)
-    
-    # Should succeed and close circuit
-    result = recovering_service()
-    assert result == "success"
-    assert breaker.state == CircuitState.CLOSED
-
-
-def test_error_handler_integration():
-    """Test integration of different error handling components."""
-    mock_logger = MagicMock()
-    
-    with patch('utils.error_handling.setup_logger', return_value=mock_logger):
-        @with_retry(max_attempts=2, retry_delay=0.1)
-        @with_error_handling(logger_name="test")
-        @db_error_handler
-        def complex_operation(db_path):
-            raise sqlite3.OperationalError("database is locked")
-        
-        with pytest.raises(DatabaseError) as exc_info:
-            complex_operation("test.db")
-        
-        assert str(exc_info.value) == "Database is locked"
-        assert mock_logger.error.call_count >= 1
-
-        # Test successful integration
-        @with_retry(max_attempts=2)
-        @with_error_handling(logger_name="test")
-        @db_error_handler
-        def successful_complex_operation(db_path):
-            return "success"
-        
-        result = successful_complex_operation("test.db")
-        assert result == "success"
-
+    error = exc_info.value
+    assert error.error_context.error_code == "PROC-VAL-001"
+    assert error.error_context.source == "test.complex"
+    assert isinstance(error.error_context.timestamp, datetime)
 
 @pytest.mark.anyio
 async def test_fastapi_error_handling():
@@ -342,30 +213,6 @@ async def test_fastapi_error_handling():
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
-
-def test_error_severity_levels():
-    """Test error severity level handling."""
-    # Test INFO severity
-    info_error = BaseError("Info message", severity=ErrorSeverity.INFO)
-    assert "INFO" in str(info_error)
-    assert info_error.severity == ErrorSeverity.INFO
-    
-    # Test WARNING severity
-    warning_error = BaseError("Warning message", severity=ErrorSeverity.WARNING)
-    assert "WARNING" in str(warning_error)
-    assert warning_error.severity == ErrorSeverity.WARNING
-    
-    # Test ERROR severity
-    error = BaseError("Error message", severity=ErrorSeverity.ERROR)
-    assert "ERROR" in str(error)
-    assert error.severity == ErrorSeverity.ERROR
-    
-    # Test CRITICAL severity
-    critical_error = BaseError("Critical message", severity=ErrorSeverity.CRITICAL)
-    assert "CRITICAL" in str(critical_error)
-    assert critical_error.severity == ErrorSeverity.CRITICAL
-
-
 def test_error_context_handling():
     """Test error context handling."""
     # Test with simple context
@@ -393,6 +240,222 @@ def test_error_context_handling():
     assert error_dict["context"]["source"] == "test"
     assert error_dict["context"]["additional_field"] == "value"
 
+def test_error_context_immutability():
+    """Test that ErrorContext is immutable after creation."""
+    context = ErrorContext(
+        source="test.module",
+        operation="test_operation",
+        error_code="TEST-OP-001",
+        severity=ErrorSeverity.ERROR
+    )
+    
+    # Attempt to modify attributes
+    with pytest.raises(AttributeError):
+        context.source = "new.source"
+    
+    with pytest.raises(AttributeError):
+        context.error_code = "NEW-CODE"
+    
+    # Ensure additional_data is immutable
+    context.additional_data["new_key"] = "value"
+    assert "new_key" not in context.to_dict()["additional_data"]
+
+def test_error_context_inheritance():
+    """Test error context inheritance and chaining."""
+    parent_context = ErrorContext(
+        source="test.parent",
+        operation="parent_op",
+        error_code="PARENT-001",
+        severity=ErrorSeverity.WARNING,
+        additional_data={"parent_data": "value"}
+    )
+    
+    child_context = ErrorContext(
+        source="test.child",
+        operation="child_op",
+        error_code="CHILD-001",
+        severity=ErrorSeverity.ERROR,
+        parent_context=parent_context,
+        additional_data={"child_data": "value"}
+    )
+    
+    assert child_context.parent_context == parent_context
+    assert "parent_data" in child_context.to_dict()["additional_data"]
+    assert child_context.to_dict()["parent_error_code"] == "PARENT-001"
+
+def test_error_code_validation():
+    """Test error code format validation."""
+    # Valid error code
+    context = ErrorContext(
+        source="test.module",
+        operation="test_operation",
+        error_code="TEST-OP-001",
+        severity=ErrorSeverity.ERROR
+    )
+    assert context.error_code == "TEST-OP-001"
+    
+    # Invalid error code format
+    with pytest.raises(ValidationError) as exc_info:
+        ErrorContext(
+            source="test.module",
+            operation="test_operation",
+            error_code="invalid_code",
+            severity=ErrorSeverity.ERROR
+        )
+    
+    assert "Invalid error code format" in str(exc_info.value)
+
+def test_retryable_error_handling():
+    """Test retryable error handling with retry mechanism."""
+    retry_count = 0
+    
+    @with_retry(max_retries=3, delay=0.1)
+    def retryable_operation():
+        nonlocal retry_count
+        retry_count += 1
+        
+        if retry_count < 3:
+            ctx = ErrorContext(
+                source="test.retry",
+                operation="retry_op",
+                error_code="RETRY-001",
+                severity=ErrorSeverity.WARNING,
+                additional_data={"attempt": retry_count}
+            )
+            raise RetryableError("Temporary failure", error_context=ctx)
+        return "success"
+    
+    result = retryable_operation()
+    assert result == "success"
+    assert retry_count == 3
+
+def test_critical_error_handling():
+    """Test critical error handling and system state."""
+    @with_api_error_handling
+    def critical_operation():
+        ctx = ErrorContext(
+            source="test.critical",
+            operation="critical_op",
+            error_code="CRIT-001",
+            severity=ErrorSeverity.CRITICAL,
+            additional_data={"system_state": "unstable"}
+        )
+        raise CriticalError("Critical system failure", error_context=ctx)
+    
+    with pytest.raises(CriticalError) as exc_info:
+        critical_operation()
+    
+    error = exc_info.value
+    assert error.error_context.severity == ErrorSeverity.CRITICAL
+    assert "system_state" in error.error_context.additional_data
+
+def test_warning_error_handling():
+    """Test warning error handling and logging."""
+    with patch('logging.Logger.warning') as mock_warning:
+        @with_api_error_handling
+        def warning_operation():
+            ctx = ErrorContext(
+                source="test.warning",
+                operation="warning_op",
+                error_code="WARN-001",
+                severity=ErrorSeverity.WARNING,
+                additional_data={"warning_type": "performance"}
+            )
+            raise WarningError("Performance degradation", error_context=ctx)
+        
+        try:
+            warning_operation()
+        except WarningError as e:
+            pass
+        
+        mock_warning.assert_called_once()
+        assert "Performance degradation" in str(mock_warning.call_args)
+
+def test_database_error_handling_sqlalchemy():
+    """Test database error handling with SQLAlchemy errors."""
+    @with_db_error_handling
+    def db_operation():
+        ctx = ErrorContext(
+            source="test.database",
+            operation="insert_data",
+            error_code="DB-INS-001",
+            severity=ErrorSeverity.ERROR,
+            additional_data={"table": "users"}
+        )
+        raise IntegrityError("statement", "params", "orig")
+    
+    with pytest.raises(DatabaseError) as exc_info:
+        db_operation()
+    
+    error = exc_info.value
+    assert error.error_context.error_code == "DB-INS-001"
+    assert error.error_context.source == "test.database"
+    assert "Integrity Error" in str(error)
+
+@pytest.mark.asyncio
+async def test_async_error_handling():
+    """Test asynchronous error handling."""
+    app = FastAPI()
+    
+    @app.get("/async-error")
+    @with_api_error_handling
+    async def async_error_endpoint():
+        ctx = ErrorContext(
+            source="test.async",
+            operation="async_op",
+            error_code="ASYNC-001",
+            severity=ErrorSeverity.ERROR,
+            additional_data={"async": True}
+        )
+        raise APIError("Async operation failed", error_context=ctx)
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/async-error")
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "ASYNC-001"
+        assert response.json()["error"]["source"] == "test.async"
+        assert response.json()["error"]["additional_data"]["async"] is True
+
+def test_error_source_validation():
+    """Test error source format validation."""
+    # Valid source format
+    context = ErrorContext(
+        source=ErrorSource.DATABASE,
+        operation="test_operation",
+        error_code=ErrorCode.DATABASE_ERROR,
+        severity=ErrorSeverity.ERROR
+    )
+    assert context.source == ErrorSource.DATABASE
+    
+    # Invalid source format
+    with pytest.raises(ValidationError) as exc_info:
+        ErrorContext(
+            source="invalid.source.format",
+            operation="test_operation",
+            error_code=ErrorCode.DATABASE_ERROR,
+            severity=ErrorSeverity.ERROR
+        )
+    
+    assert "Invalid error source format" in str(exc_info.value)
+
+def test_error_context_timing():
+    """Test error context timing information."""
+    start_time = get_utc_now()
+    
+    context = ErrorContext(
+        source="test.timing",
+        operation="timing_op",
+        error_code="TIME-001",
+        severity=ErrorSeverity.ERROR,
+        additional_data={"start_time": start_time}
+    )
+    
+    error_dict = context.to_dict()
+    assert "timestamp" in error_dict
+    assert "duration" in error_dict
+    
+    # Ensure timestamp is after start_time
+    assert datetime.fromisoformat(error_dict["timestamp"]) > start_time
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__]) 

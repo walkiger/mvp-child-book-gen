@@ -1,29 +1,61 @@
-from datetime import datetime, timedelta
-from fastapi import HTTPException, status
+from datetime import datetime, timedelta, UTC
+from .errors.rate_limit import QuotaExceededError
+from .errors.base import ErrorContext, ErrorSeverity
 
 # Global counters (use Redis in production)
 openai_request_count = 0
 openai_token_count = 0
-last_reset_time = datetime.utcnow()
+last_reset_time = datetime.now(UTC)
 
 def check_rate_limits():
+    """
+    Check OpenAI API rate limits.
+    
+    Raises:
+        QuotaExceededError: When rate limits are exceeded
+    """
     global openai_request_count, openai_token_count, last_reset_time
 
     # Reset counters every minute
-    if (datetime.utcnow() - last_reset_time) > timedelta(minutes=1):
+    if (datetime.now(UTC) - last_reset_time) > timedelta(minutes=1):
         openai_request_count = 0
         openai_token_count = 0
-        last_reset_time = datetime.utcnow()
+        last_reset_time = datetime.now(UTC)
 
     # Enforce global limits
     if openai_request_count >= 5 or openai_token_count >= 20000:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Try again in 1 minute.",
-            headers={"Retry-After": "60"}
+        reset_time = last_reset_time + timedelta(minutes=1)
+        context = ErrorContext(
+            source="ai_utils.check_rate_limits",
+            severity=ErrorSeverity.WARNING
         )
+        
+        if openai_request_count >= 5:
+            raise QuotaExceededError(
+                message="OpenAI request rate limit exceeded",
+                limit_type="requests",
+                current_usage=openai_request_count,
+                limit=5,
+                reset_time=reset_time,
+                context=context
+            )
+        else:
+            raise QuotaExceededError(
+                message="OpenAI token rate limit exceeded",
+                limit_type="tokens",
+                current_usage=openai_token_count,
+                limit=20000,
+                reset_time=reset_time,
+                context=context
+            )
 
 def update_rate_metrics(tokens_used: int):
+    """
+    Update rate limiting metrics.
+    
+    Args:
+        tokens_used: Number of tokens used in the request
+    """
     global openai_request_count, openai_token_count
     openai_request_count += 1
     openai_token_count += tokens_used

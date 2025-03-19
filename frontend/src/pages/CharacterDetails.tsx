@@ -17,6 +17,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import BookIcon from '@mui/icons-material/Book'
 import axios from '../lib/axios'
+import AuthenticatedImage from '../components/AuthenticatedImage'
 
 interface Character {
   id: number
@@ -146,11 +147,10 @@ const CharacterDetails: React.FC = () => {
         <Grid item xs={12} md={6}>
           {character.image_path && (
             <Card>
-              <CardMedia
-                component="img"
-                height="300"
-                image={character.image_path}
+              <AuthenticatedImage
+                src={character.image_path}
                 alt={character.name}
+                style={{ height: '300px', width: '100%', objectFit: 'cover' }}
               />
             </Card>
           )}
@@ -167,11 +167,10 @@ const CharacterDetails: React.FC = () => {
                   {character.generated_images.map((image, index) => (
                     <Grid item xs={12} sm={6} md={3} key={index}>
                       <Card>
-                        <CardMedia
-                          component="img"
-                          height="200"
-                          image={image}
+                        <AuthenticatedImage
+                          src={image}
                           alt={`${character.name} - Option ${index + 1}`}
+                          style={{ height: '200px', width: '100%', objectFit: 'cover' }}
                         />
                       </Card>
                     </Grid>

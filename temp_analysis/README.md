@@ -354,3 +354,24 @@ python manage.py start --unified-mode --with-dashboard
 
 # Start web dashboard on custom port
 python manage.py dashboard --port 3001 
+
+### Server Management
+
+The application includes a CLI for managing the servers:
+
+- Start servers:
+  ```bash
+  python3 -m management.main start --unified-mode
+  ```
+
+- Stop servers:
+  ```bash
+  python3 -m management.main stop --all
+  ```
+
+- Check status:
+  ```bash
+  python3 -m management.main status
+  ```
+
+The unified mode runs both servers in a single terminal with color-coded output for easy monitoring. 

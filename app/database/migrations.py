@@ -3,11 +3,16 @@ Database migration utilities.
 """
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
+from uuid import uuid4
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.config import settings
 from app.database.models import Base
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.errors.database import DatabaseMigrationError
 
 def create_migration_script():
     """Create a new migration script with timestamp."""
@@ -15,7 +20,21 @@ def create_migration_script():
     migration_name = f"migration_{timestamp}.py"
     migration_path = os.path.join(os.path.dirname(__file__), "migrations", migration_name)
     
-    os.makedirs(os.path.dirname(migration_path), exist_ok=True)
+    try:
+        os.makedirs(os.path.dirname(migration_path), exist_ok=True)
+    except OSError as e:
+        error_context = ErrorContext(
+            source="migrations.create_migration_script",
+            severity=ErrorSeverity.ERROR,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"migration_path": migration_path, "error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to create migrations directory: {str(e)}",
+            error_code="DB-MIG-DIR-001",
+            context=error_context
+        )
     
     template = f'''"""
 Migration script created at {timestamp}
@@ -110,40 +129,124 @@ def downgrade(engine):
         conn.commit()
 '''
     
-    with open(migration_path, "w") as f:
-        f.write(template)
+    try:
+        with open(migration_path, "w") as f:
+            f.write(template)
+    except IOError as e:
+        error_context = ErrorContext(
+            source="migrations.create_migration_script",
+            severity=ErrorSeverity.ERROR,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"migration_path": migration_path, "error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to write migration script: {str(e)}",
+            error_code="DB-MIG-WRITE-001",
+            context=error_context
+        )
     
     print(f"Created migration script: {migration_path}")
     return migration_path
 
 def run_migrations():
     """Run all pending migrations."""
-    engine = create_engine(settings.DATABASE_URL)
+    try:
+        engine = create_engine(settings.DATABASE_URL)
+    except SQLAlchemyError as e:
+        error_context = ErrorContext(
+            source="migrations.run_migrations",
+            severity=ErrorSeverity.CRITICAL,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"database_url": settings.DATABASE_URL, "error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to create database engine: {str(e)}",
+            error_code="DB-MIG-ENGINE-001",
+            context=error_context
+        )
     
     # Create migrations table if it doesn't exist
-    with engine.connect() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS migrations (
-                id INTEGER PRIMARY KEY,
-                name VARCHAR NOT NULL,
-                applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS migrations (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR NOT NULL,
+                    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+    except SQLAlchemyError as e:
+        error_context = ErrorContext(
+            source="migrations.run_migrations",
+            severity=ErrorSeverity.CRITICAL,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to create migrations table: {str(e)}",
+            error_code="DB-MIG-TABLE-001",
+            context=error_context
+        )
     
     # Get list of applied migrations
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT name FROM migrations"))
-        applied_migrations = {row[0] for row in result}
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT name FROM migrations"))
+            applied_migrations = {row[0] for row in result}
+    except SQLAlchemyError as e:
+        error_context = ErrorContext(
+            source="migrations.run_migrations",
+            severity=ErrorSeverity.ERROR,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to fetch applied migrations: {str(e)}",
+            error_code="DB-MIG-FETCH-001",
+            context=error_context
+        )
     
     # Get list of migration files
     migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
     
-    # Create migrations directory if it doesn't exist
-    os.makedirs(migrations_dir, exist_ok=True)
+    try:
+        # Create migrations directory if it doesn't exist
+        os.makedirs(migrations_dir, exist_ok=True)
+    except OSError as e:
+        error_context = ErrorContext(
+            source="migrations.run_migrations",
+            severity=ErrorSeverity.ERROR,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"migrations_dir": migrations_dir, "error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to create migrations directory: {str(e)}",
+            error_code="DB-MIG-DIR-002",
+            context=error_context
+        )
     
     # Import the migrations module to get files
-    from app.database.migrations import get_migration_files, run_migration
+    try:
+        from app.database.migrations import get_migration_files, run_migration
+    except ImportError as e:
+        error_context = ErrorContext(
+            source="migrations.run_migrations",
+            severity=ErrorSeverity.CRITICAL,
+            timestamp=datetime.now(UTC),
+            error_id=str(uuid4()),
+            additional_data={"error": str(e)}
+        )
+        raise DatabaseMigrationError(
+            message=f"Failed to import migration utilities: {str(e)}",
+            error_code="DB-MIG-IMPORT-001",
+            context=error_context
+        )
     
     migration_files = sorted([
         f for f in get_migration_files()
@@ -167,8 +270,21 @@ def run_migrations():
                 
                 print(f"Successfully applied migration: {migration_file}")
             except Exception as e:
-                print(f"Error applying migration {migration_file}: {str(e)}")
-                sys.exit(1)
+                error_context = ErrorContext(
+                    source="migrations.run_migrations",
+                    severity=ErrorSeverity.CRITICAL,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={
+                        "migration_file": migration_file,
+                        "error": str(e)
+                    }
+                )
+                raise DatabaseMigrationError(
+                    message=f"Failed to apply migration {migration_file}: {str(e)}",
+                    error_code="DB-MIG-APPLY-001",
+                    context=error_context
+                )
 
 if __name__ == "__main__":
     run_migrations() 

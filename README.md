@@ -1,6 +1,72 @@
 # Child Book Generator MVP
 
-This application generates personalized children's books using AI.
+## Overview
+An AI-powered application that generates personalized children's stories with illustrations.
+
+## Features
+- Story generation with age-appropriate content
+- Character creation with AI-generated illustrations
+- User authentication and authorization
+- Cost tracking for story generation
+- Timezone-aware datetime handling
+- Proper API response formatting
+- Comprehensive test coverage
+
+## Technical Stack
+- Python FastAPI backend
+- SQLAlchemy ORM
+- OpenAI API integration
+- JWT authentication
+- Pydantic data validation
+- Pytest testing framework
+- SQLite database (development)
+- Timezone-aware datetime handling
+
+## Development Setup
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Set up environment variables:
+   ```
+   OPENAI_API_KEY=your_key_here
+   SECRET_KEY=your_secret_here
+   ```
+4. Run tests: `python -m pytest`
+5. Start server: `uvicorn app.main:app --reload`
+
+## API Documentation
+- `/docs` - Swagger UI documentation
+- `/redoc` - ReDoc documentation
+
+### Key Endpoints
+- POST `/api/auth/login` - User authentication
+- POST `/api/stories/` - Generate new story
+- POST `/api/characters/` - Create character
+- POST `/api/images/generate` - Generate character image
+
+## Testing
+- Run tests: `python -m pytest`
+- Run specific tests: `python -m pytest tests/test_api.py -v`
+- Generate coverage report: `pytest --cov=app`
+
+### Test Coverage
+- API endpoints
+- Authentication
+- Story generation
+- Image generation
+- Character creation
+- Error handling
+- Timezone handling
+- Data serialization
+
+## Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Make changes
+4. Run tests
+5. Submit pull request
+
+## License
+MIT License
 
 ## Getting Started
 
@@ -19,34 +85,68 @@ This application generates personalized children's books using AI.
 
 The application includes a comprehensive management CLI for various tasks:
 
-### Server Management
+### Server Management Commands
 
-- `python manage.py start` - Start both backend and frontend servers
-  - `--backend` - Start only the backend server
-  - `--frontend` - Start only the frontend server
-  - `--backend-port PORT` - Specify backend port (default: 8080)
-  - `--frontend-port PORT` - Specify frontend port (default: 3000)
-  - `--detach` - Run in detached mode
-  - `--use-ide-terminal` - Show commands for running in separate IDE terminals
-  - `--unified-mode` - Run all servers in a unified terminal with color-coded output
-  - `--with-dashboard` - Start the web dashboard alongside the servers
+The following commands are available for managing the servers:
 
-- `python manage.py stop` - Stop both servers
-  - `--backend-only` - Stop only the backend server
-  - `--frontend-only` - Stop only the frontend server
-  - `--force` - Force kill the processes
+### Start Commands
+- Start both servers in unified mode (recommended):
+  ```bash
+  python3 -m management.main start --unified-mode
+  ```
 
-- `python manage.py restart` - Restart both backend and frontend servers
-  - `--backend` - Restart only the backend server
-  - `--frontend` - Restart only the frontend server
-  - `--backend-port PORT` - Specify backend port (default: 8080)
-  - `--frontend-port PORT` - Specify frontend port (default: 3000)
-  - `--use-ide-terminal` - Show commands for running in separate IDE terminals
-  - `--unified-mode` - Run all servers in a unified terminal with color-coded output
-  - `--with-dashboard` - Start the web dashboard alongside the servers
+- Start backend only:
+  ```bash
+  python3 -m management.main start --backend
+  ```
 
-- `python manage.py status` - Show server status
-- `python manage.py cleanup` - Clean up stale PID files
+- Start frontend only:
+  ```bash
+  python3 -m management.main start --frontend
+  ```
+
+- Start with custom ports:
+  ```bash
+  python3 -m management.main start --backend --frontend --backend-port 8000 --frontend-port 3001
+  ```
+
+### Stop Commands
+- Stop all servers:
+  ```bash
+  python3 -m management.main stop --all
+  ```
+
+- Stop backend only:
+  ```bash
+  python3 -m management.main stop --backend
+  ```
+
+- Stop frontend only:
+  ```bash
+  python3 -m management.main stop --frontend
+  ```
+
+### Status Command
+Check server status:
+```bash
+python3 -m management.main status
+```
+
+### Restart Commands
+- Restart both servers:
+  ```bash
+  python3 -m management.main restart --all
+  ```
+
+- Restart backend only:
+  ```bash
+  python3 -m management.main restart --backend
+  ```
+
+- Restart frontend only:
+  ```bash
+  python3 -m management.main restart --frontend
+  ```
 
 ### Environment Management
 
@@ -80,6 +180,19 @@ The application includes a comprehensive management CLI for various tasks:
 - `python manage.py check-images` - Check image information in the database
   - `--db-path PATH` - Path to database file
 
+## Project Structure
+
+- `app/` - Main application code
+  - `api/` - API routes and endpoints
+  - `database/` - Database models and migrations
+  - `schemas/` - Pydantic data models
+  - `core/` - Core business logic
+  - `errors/` - Error handling framework
+- `frontend/` - Frontend React application
+- `management/` - Management CLI package
+- `utils/` - Shared utilities and error handling framework
+- `tests/` - Test modules for all components
+
 ## Error Handling Framework
 
 The application uses a robust error handling framework that provides standardized error management across all components:
@@ -96,9 +209,11 @@ The application uses a robust error handling framework that provides standardize
    - `db_error_handler`: Specialized decorator for database operations
 
 3. **Recovery Mechanisms**:
-   - Retry functionality with configurable attempts
-   - Resource management with automatic cleanup
-   - Graceful degradation
+   - Retry logic for transient failures
+   - Circuit breakers for external services
+   - Rate limiting with backoff
+   - Session recovery after authentication failures
+   - Automatic cleanup of incomplete operations
 
 ### Usage Example
 
@@ -118,139 +233,70 @@ def process_data(db_path):
         return False
 ```
 
-## Testing
-
-Run the test suite using Jest:
-
-```bash
-# Run all tests
-npm test
-
-# Run with verbose output
-npm test -- --verbose
-
-# Run specific test files
-npm test src/tests/ErrorDisplay.test.tsx
-
-# Run with coverage report
-npm test -- --coverage
-```
-
-### Test Coverage Status
-
-#### Frontend Tests
-- ✅ Error Display Component (100% coverage)
-  - Error message rendering
-  - Retry functionality
-  - Close button behavior
-  - Full page mode
-  - Error details display
-
-- ✅ Loading State Component (100% coverage)
-  - Spinner variant
-  - Skeleton variant
-  - Custom styling
-  - Text display
-  - Multiple skeleton items
-
-- ✅ Error Handling Utilities (95% coverage)
-  - Error formatting
-  - Retryable error detection
-  - API error conversion
-  - Network error handling
-  - Rate limit handling
-
-- ⚠️ Retry Operation (90% coverage)
-  - Success scenarios
-  - Network error retries
-  - Non-retryable errors
-  - Default max attempts
-  - Exponential backoff
-  - Known issue with maxAttempts test
-
-#### Areas for Testing Focus
-1. Error Handling Edge Cases
-   - Rate limiting scenarios
-   - Network timeouts
-   - Server errors
-   - Invalid response formats
-
-2. Component Integration Tests
-   - Character creation workflow
-   - Story generation process
-   - Image generation error handling
-   - Form validation feedback
-
-3. API Integration Tests
-   - Authentication flows
-   - Data fetching
-   - Error recovery
-   - Retry mechanisms
-
-### Current Test Coverage
-- Frontend Components: 44% coverage
-- Error Handling: 95% coverage
-- Loading States: 100% coverage
-- API Integration: 35% coverage
-
-### Testing Priorities
-1. Fix retry operation maxAttempts test
-2. Add rate limiting and timeout tests
-3. Implement API integration tests
-4. Add end-to-end workflow tests
-
-## Project Structure
-
-- `app/` - Main application code
-  - `api/` - API routes and endpoints
-  - `database/` - Database models and migrations
-  - `schemas/` - Pydantic data models
-  - `core/` - Core business logic
-- `frontend/` - Frontend React application
-- `management/` - Management CLI package
-- `utils/` - Shared utilities and error handling framework
-- `tests/` - Test modules for all components
-
 ## Development Roadmap
 
+### Completed
+- Basic API endpoints for character and story management
+- Initial database models and schemas
+- Authentication system with JWT
+- Comprehensive error handling framework
+- Frontend routing and basic components
+- Image generation integration
+
 ### Immediate Priorities (1-2 days)
-- Fix API test failures related to FastAPI mock configuration
-- Address Pydantic V2 deprecation warnings in schema files
-- Fix CORS headers configuration
+- Fix API test failures in FastAPI mock configuration
+- Complete Pydantic V2 migration in schema files
+- Fix CORS headers configuration for development
+- Implement basic response caching
+- Complete remaining error handling for story endpoints
 
 ### Short-term Goals (3-5 days)
-- Fix command test mocking issues
-- Fix configuration test environment validation
-- Standardize logging across all modules
+- Enhance monitoring system with Prometheus metrics
+- Implement Redis caching layer
+- Increase test coverage to 80%
+- Add comprehensive API documentation
+- Complete dashboard implementation
 
 ### Medium-term Goals (1-2 weeks)
-- Improve error handling documentation
-- Implement environment variable validation
-- Add diagnostic tooling for troubleshooting
+- Implement visual trait selection interface
+- Add story templates and presets
+- Create comprehensive monitoring dashboard
+- Add automated error recovery actions
+- Implement bulk operations for performance
 
 ### Long-term Goals (2-4 weeks)
-- Increase test coverage to 70%+
-- Implement comprehensive monitoring dashboard
-- Add automated recovery actions for common failures
+- Add print-ready export functionality
+- Implement PWA features for offline access
+- Create character relationships system
+- Add advanced storytelling features
+- Implement microservices architecture
 
 ## Frontend Improvements
 
 ### Immediate Focus
-- Complete character creation API integration
+- Complete story creation UI with preview
+- Implement comprehensive form validation
+- Add loading states for all async operations
 - Fix image generation error handling
-- Implement form validation
+- Complete dashboard components
 
 ### Short-term Goals
 - Convert character creation to step-by-step wizard
-- Enhance state management
-- Implement dashboard improvements
+- Enhance state management with Zustand
+- Implement comprehensive error recovery
+- Add bulk operations interface
+- Create visual trait selection
 
 ### Medium-term Goals
-- Add visual trait selection interface
-- Improve story generation workflow
-- Implement PWA features
+- Add advanced story customization
+- Implement story preview system
+- Add character relationship visualization
+- Create print preview interface
+- Implement offline capabilities
 
 ### Long-term Goals
-- Add print-ready export functionality
-- Implement advanced storytelling features
-- Create character relationships system 
+- Add collaborative editing features
+- Implement advanced animation effects
+- Create story sharing platform
+- Add accessibility improvements
+- Implement advanced search and filtering

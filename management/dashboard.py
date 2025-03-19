@@ -18,13 +18,14 @@ except ImportError:
 
 from .pid_utils import get_pid, is_process_running
 from .commands import remove_pid_file
+from app.core.logging import setup_logger
 
-# Setup logging
-logger = logging.getLogger("dashboard")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-logger.addHandler(handler)
+# Setup logger
+logger = setup_logger(
+    name="management.dashboard",
+    level="INFO",
+    log_file="logs/management.log"
+)
 
 # HTML template for the dashboard
 DASHBOARD_HTML = """

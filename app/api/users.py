@@ -8,7 +8,6 @@ password change, and account deletion.
 from fastapi import (
     APIRouter,
     Depends,
-    HTTPException,
     UploadFile,
     File,
     status,
@@ -17,23 +16,31 @@ from fastapi import (
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
+from datetime import datetime, UTC
+from uuid import uuid4
+from PIL import Image
+import io
+import logging
+
 from app.database import models
 from app.schemas import user as schemas
 from app.api.dependencies import get_current_user, get_db
 from app.database.utils import hash_password, verify_password
-from PIL import Image
-import io
-
-router = APIRouter(
-    prefix="/users",
-    tags=["users"],
+from app.core.errors.user import (
+    UserError,
+    UserNotFoundError,
+    UserValidationError,
+    UserProfileError
 )
+from app.core.errors.base import ErrorContext
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["users"])
 
 
 @router.get("/me", response_model=schemas.UserResponse)
-def get_profile(
-    current_user: models.User = Depends(get_current_user),
-):
+def get_profile(current_user: models.User = Depends(get_current_user)):
     """
     Retrieve the current user's profile information.
 
@@ -63,31 +70,42 @@ def update_profile(
     Returns:
         UserResponse: The updated user profile.
     """
-    update_data = user_update.model_dump(exclude_unset=True)  # Changed from dict() to model_dump()
+    update_data = user_update.model_dump(exclude_unset=True)
 
-    # Prevent updating email, username, and password here to avoid conflicts
+    # Validate forbidden fields
     forbidden_fields = {"email", "username", "password"}
     if forbidden_fields.intersection(update_data.keys()):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot update email, username, or password via this endpoint.",
+        raise UserValidationError(
+            message="Cannot update protected fields",
+            error_code="USER-VAL-FIELD-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"forbidden_fields": list(forbidden_fields.intersection(update_data.keys()))}
+            )
         )
 
-    for field, value in update_data.items():
-        setattr(current_user, field, value)
-
     try:
+        for field, value in update_data.items():
+            setattr(current_user, field, value)
+
         db.add(current_user)
         db.commit()
         db.refresh(current_user)
-    except IntegrityError:
+        return current_user
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An error occurred while updating your profile.",
+        raise UserProfileError(
+            message="Failed to update profile",
+            error_code="USER-PROF-UPD-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"error": str(e)}
+            )
         )
-
-    return current_user
 
 
 @router.put("/me/password", response_model=schemas.Message)
@@ -108,15 +126,33 @@ def change_password(
         Message: A success message.
     """
     if not verify_password(password_data.old_password, current_user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Old password is incorrect.",
+        raise UserValidationError(
+            message="Old password is incorrect",
+            error_code="USER-VAL-PWD-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id)
+            )
         )
 
-    current_user.password_hash = hash_password(password_data.new_password)
-    db.add(current_user)
-    db.commit()
-    return {"detail": "Password changed successfully."}
+    try:
+        current_user.password_hash = hash_password(password_data.new_password)
+        db.add(current_user)
+        db.commit()
+        return {"detail": "Password changed successfully."}
+    except Exception as e:
+        db.rollback()
+        raise UserProfileError(
+            message="Failed to update password",
+            error_code="USER-PROF-PWD-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"error": str(e)}
+            )
+        )
 
 
 @router.delete("/me", response_model=schemas.Message)
@@ -136,16 +172,33 @@ def delete_account(
     Returns:
         Message: A success message upon account deletion.
     """
-    # Verify password for security
     if not verify_password(password_data.password, current_user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password is incorrect.",
+        raise UserValidationError(
+            message="Password is incorrect",
+            error_code="USER-VAL-PWD-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id)
+            )
         )
 
-    db.delete(current_user)
-    db.commit()
-    return {"detail": "Account deleted successfully."}
+    try:
+        db.delete(current_user)
+        db.commit()
+        return {"detail": "Account deleted successfully."}
+    except Exception as e:
+        db.rollback()
+        raise UserProfileError(
+            message="Failed to delete account",
+            error_code="USER-PROF-DEL-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"error": str(e)}
+            )
+        )
 
 
 @router.get("/{user_id}", response_model=schemas.UserPublic)
@@ -167,9 +220,15 @@ def get_user_profile(
     """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found.",
+        raise UserNotFoundError(
+            message=f"User not found: {user_id}",
+            error_code="USER-NFD-ID-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"requested_user_id": user_id}
+            )
         )
     return user
 
@@ -189,8 +248,7 @@ def list_users(
     Returns:
         List[UserPublic]: A list of users' public profiles.
     """
-    users = db.query(models.User).all()
-    return users
+    return db.query(models.User).all()
 
 
 @router.post("/avatar", response_model=schemas.UserResponse)
@@ -215,56 +273,76 @@ async def upload_avatar(
     """
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/png"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file type. Only JPEG and PNG are allowed.",
-        )
-
-    # Read file data
-    image_data = await file.read()
-
-    # Enforce maximum file size (e.g., 1 MB)
-    MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
-    if len(image_data) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File size exceeds the maximum limit of 1 MB.",
+        raise UserValidationError(
+            message="Invalid file type",
+            error_code="USER-VAL-IMG-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={
+                    "content_type": file.content_type,
+                    "allowed_types": ["image/jpeg", "image/png"]
+                }
+            )
         )
 
     try:
-        # Open the image using Pillow
-        image = Image.open(io.BytesIO(image_data))
+        # Read file data
+        image_data = await file.read()
 
-        # Resize the image to 100x100 pixels
-        image = image.convert("RGB")  # Ensure image is in RGB format
+        # Enforce maximum file size
+        MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
+        if len(image_data) > MAX_FILE_SIZE:
+            raise UserValidationError(
+                message="File size exceeds limit",
+                error_code="USER-VAL-IMG-002",
+                context=ErrorContext(
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    user_id=str(current_user.id),
+                    additional_data={
+                        "file_size": len(image_data),
+                        "max_size": MAX_FILE_SIZE
+                    }
+                )
+            )
+
+        # Process image
+        image = Image.open(io.BytesIO(image_data))
+        image = image.convert("RGB")
         image = image.resize((100, 100), Image.ANTIALIAS)
 
-        # Save the resized image to a bytes buffer
+        # Save the resized image
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG")
         resized_image_data = buffer.getvalue()
         buffer.close()
 
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Error processing image.",
+        # Update user's avatar
+        current_user.avatar = resized_image_data
+        current_user.avatar_content_type = "image/jpeg"
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+
+        return current_user
+    except Exception as e:
+        db.rollback()
+        raise UserProfileError(
+            message="Failed to update avatar",
+            error_code="USER-PROF-IMG-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id),
+                additional_data={"error": str(e)}
+            )
         )
-
-    # Update user's avatar and content type
-    current_user.avatar = resized_image_data
-    current_user.avatar_content_type = "image/jpeg"  # Since we saved as JPEG
-    db.add(current_user)
-    db.commit()
-    db.refresh(current_user)
-
-    return current_user
 
 
 @router.get("/avatar")
-def get_avatar(
-    current_user: models.User = Depends(get_current_user),
-):
+def get_avatar(current_user: models.User = Depends(get_current_user)):
     """
     Retrieve the current user's avatar image.
 
@@ -272,9 +350,14 @@ def get_avatar(
         Response: The avatar image data with the appropriate content type.
     """
     if not current_user.avatar or not current_user.avatar_content_type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User avatar not found.",
+        raise UserNotFoundError(
+            message="User avatar not found",
+            error_code="USER-NFD-IMG-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                user_id=str(current_user.id)
+            )
         )
 
     return Response(
@@ -299,9 +382,14 @@ def get_user_avatar(
     """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user or not user.avatar or not user.avatar_content_type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User avatar not found.",
+        raise UserNotFoundError(
+            message="User avatar not found",
+            error_code="USER-NFD-IMG-001",
+            context=ErrorContext(
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={"user_id": user_id}
+            )
         )
 
     return Response(

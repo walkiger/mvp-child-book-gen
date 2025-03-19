@@ -7,16 +7,17 @@ This script helps create and manage the .env file with necessary environment var
 import os
 import sys
 import getpass
-from pathlib import Path
+import argparse
+from typing import Tuple, Dict
 
 ENV_FILE = '.env'
 
-def check_env_file():
+def check_env_file() -> Tuple[bool, str]:
     """Check if .env file exists and return its path"""
-    env_path = Path(ENV_FILE)
-    return env_path.exists(), env_path
+    env_path = os.path.abspath(ENV_FILE)
+    return os.path.exists(env_path), env_path
 
-def read_env_variables():
+def read_env_variables() -> Dict[str, str]:
     """Read existing environment variables from .env file"""
     env_vars = {}
     env_exists, env_path = check_env_file()
@@ -31,7 +32,7 @@ def read_env_variables():
     
     return env_vars
 
-def write_env_file(env_vars):
+def write_env_file(env_vars: Dict[str, str]):
     """Write environment variables to .env file"""
     with open(ENV_FILE, 'w') as f:
         f.write("# Environment variables for Child Book Generator MVP\n\n")
@@ -41,14 +42,14 @@ def write_env_file(env_vars):
     
     print(f"\nEnvironment variables saved to {ENV_FILE}")
 
-def get_required_variables():
+def get_required_variables() -> Dict[str, str]:
     """List of required environment variables with descriptions"""
     return {
         'OPENAI_API_KEY': 'Your OpenAI API key for accessing DALL-E',
         'DATABASE_URL': 'Database connection URL (e.g., sqlite:///./app.db)',
     }
 
-def get_optional_variables():
+def get_optional_variables() -> Dict[str, str]:
     """List of optional environment variables with descriptions"""
     return {
         'DALLE_DEFAULT_VERSION': 'Default DALL-E version to use (dall-e-2 or dall-e-3)',
@@ -146,24 +147,46 @@ def show_current_env():
         else:
             print(f"  {key}={value}")
 
+def update_env_file(updates: Dict[str, str]):
+    """Update values in the .env file"""
+    current_values = read_env_variables()
+    current_values.update(updates)
+    write_env_file(current_values)
+
 def main():
     """Main function to run the script"""
-    if len(sys.argv) < 2:
-        print("Usage: python manage_env.py [command]")
-        print("\nAvailable commands:")
-        print("  setup    - Create or update environment variables")
-        print("  show     - Display current environment variables")
-        return
+    parser = argparse.ArgumentParser(description="Manage environment variables")
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
     
-    command = sys.argv[1].lower()
+    # Setup command
+    setup_parser = subparsers.add_parser('setup', help='Create or update environment variables')
     
-    if command == 'setup':
+    # Show command
+    show_parser = subparsers.add_parser('show', help='Display current environment variables')
+    
+    # Set command
+    set_parser = subparsers.add_parser('set', help='Set specific environment variables')
+    set_parser.add_argument('key_values', nargs='+', help='KEY=VALUE pairs to set')
+    
+    args = parser.parse_args()
+    
+    if args.command == 'setup':
         setup_environment()
-    elif command == 'show':
+    elif args.command == 'show':
         show_current_env()
+    elif args.command == 'set':
+        updates = {}
+        for kv in args.key_values:
+            try:
+                key, value = kv.split('=', 1)
+                updates[key.strip()] = value.strip()
+            except ValueError:
+                print(f"Error: Invalid format for {kv}. Use KEY=VALUE format.")
+                sys.exit(1)
+        update_env_file(updates)
+        print("Environment file updated successfully")
     else:
-        print(f"Unknown command: {command}")
-        print("Available commands: setup, show")
+        parser.print_help()
 
 if __name__ == "__main__":
     main() 

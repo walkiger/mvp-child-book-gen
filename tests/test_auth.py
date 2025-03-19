@@ -1,19 +1,50 @@
 """
-Tests for the authentication functionality.
+Tests for the authentication functionality with unified error handling.
 """
 import pytest
 from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
+import jwt
+from jwt.exceptions import PyJWTError
 from jose import jwt
-
-from app.core.auth import create_access_token, verify_password, get_password_hash, get_current_user
+from app.config import Settings
+from app.core.auth import (
+    create_access_token,
+    get_password_hash,
+    verify_password,
+    authenticate_user,
+    register_user,
+    get_current_user,
+    validate_token
+)
 from app.api.auth import register, login, oauth2_scheme
 from app.api.dependencies import get_current_user as dep_get_current_user
-from app.config import settings
 from app.database.models import User
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.errors.auth import (
+    AuthenticationError,
+    RegistrationError,
+    TokenError,
+    UserNotFoundError,
+    InvalidCredentialsError,
+    TokenExpiredError,
+    TokenValidationError,
+    PasswordValidationError
+)
+from app.database.session import get_db
+from tests.conftest import get_test_settings, generate_unique_email, generate_unique_username
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+import time
 
+# Test data
+TEST_USER = {
+    "email": "test@example.com",
+    "password": "testpassword",
+    "full_name": "Test User",
+}
 
 class TestAuthUtils:
     def test_password_hashing(self):
@@ -34,228 +65,296 @@ class TestAuthUtils:
     
     def test_create_access_token(self):
         """Test creation of JWT access tokens."""
-        # Test data
+        settings = get_test_settings()
         data = {"sub": "test@example.com"}
         expires_delta = timedelta(minutes=15)
         
         # Create token
         token = create_access_token(data, expires_delta)
         
-        # Verify the token is a string and not empty
+        # Verify the token
         assert isinstance(token, str)
         assert token
         
         # Decode and verify token contents
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         assert payload["sub"] == "test@example.com"
         
-        # Verify expiration was set correctly (approximately)
-        exp_time = datetime.fromtimestamp(payload["exp"])
-        now = datetime.utcnow()
-        # Allow for a small time difference due to execution time
-        assert (exp_time - now).total_seconds() > 14 * 60  # At least 14 minutes remaining
+        # Verify expiration
+        exp_time = datetime.fromtimestamp(payload["exp"], UTC)
+        now = datetime.now(UTC)
+        assert (exp_time - now).total_seconds() > 14 * 60
     
-    def test_create_access_token_default_expiry(self):
-        """Test creation of JWT access tokens with default expiry."""
-        # Test data
-        data = {"sub": "test@example.com"}
+    @pytest.mark.asyncio
+    async def test_get_current_user_invalid_token(self, test_db_session: Session):
+        """Test getting current user with invalid token."""
+        with pytest.raises(TokenError) as exc_info:
+            await get_current_user("invalid_token", test_db_session)
         
-        # Create token with default expiry
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-TOK-INV-001"
+        assert error.error_context.source == "auth.token"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+
+    @pytest.mark.asyncio
+    async def test_get_current_user_user_not_found(self, test_db_session: Session):
+        """Test getting current user when user doesn't exist."""
+        access_token = create_access_token({"sub": "nonexistent@example.com"})
+
+        with pytest.raises(UserNotFoundError) as exc_info:
+            await get_current_user(access_token, test_db_session)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-USR-404"
+        assert error.error_context.source == "auth.user"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+
+    @pytest.mark.asyncio
+    async def test_authenticate_user_wrong_password(self, test_db_session: Session):
+        """Test authentication with wrong password."""
+        email = generate_unique_email()
+        user = User(
+            email=email,
+            username=generate_unique_username(),
+            password_hash=get_password_hash("testpassword"),
+            first_name="Test",
+            last_name="User"
+        )
+        test_db_session.add(user)
+        test_db_session.commit()
+
+        with pytest.raises(InvalidCredentialsError) as exc_info:
+            await authenticate_user(email, "wrongpassword", test_db_session)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-CRED-INV-001"
+        assert error.error_context.source == "auth.credentials"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert error.error_context.additional_data.get("email") == email
+
+    def test_password_validation_too_short(self):
+        """Test password validation with too short password."""
+        with pytest.raises(PasswordValidationError) as exc_info:
+            password = "short"
+            get_password_hash(password)  # This should validate length
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-PWD-LEN-001"
+        assert error.error_context.source == "auth.password"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert "length" in error.error_context.additional_data
+
+    def test_password_validation_no_numbers(self):
+        """Test password validation with no numbers."""
+        with pytest.raises(PasswordValidationError) as exc_info:
+            password = "NoNumbersHere!"
+            get_password_hash(password)  # This should validate complexity
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-PWD-CPX-001"
+        assert error.error_context.source == "auth.password"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert "complexity" in error.error_context.additional_data
+
+    def test_token_validation_expired(self):
+        """Test validation of expired token."""
+        settings = get_test_settings()
+        data = {"sub": "test@example.com"}
+        expires_delta = timedelta(seconds=1)
+        
+        # Create token that expires in 1 second
+        token = create_access_token(data, expires_delta)
+        
+        # Wait for token to expire
+        time.sleep(2)
+        
+        with pytest.raises(TokenExpiredError) as exc_info:
+            validate_token(token)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-TOK-EXP-001"
+        assert error.error_context.source == "auth.token"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert "exp" in error.error_context.additional_data
+
+    def test_token_validation_invalid_signature(self):
+        """Test validation of token with invalid signature."""
+        settings = get_test_settings()
+        data = {"sub": "test@example.com"}
         token = create_access_token(data)
         
-        # Verify the token is a string and not empty
-        assert isinstance(token, str)
-        assert token
+        # Tamper with the token
+        tampered_token = token[:-1] + ("1" if token[-1] == "0" else "0")
         
-        # Decode and verify token contents
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-        assert payload["sub"] == "test@example.com"
+        with pytest.raises(TokenValidationError) as exc_info:
+            validate_token(tampered_token)
         
-        # Verify expiration exists
-        assert "exp" in payload
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-TOK-SIG-001"
+        assert error.error_context.source == "auth.token"
+        assert error.error_context.severity == ErrorSeverity.ERROR
 
 
 class TestAuthAPI:
     @pytest.mark.asyncio
-    async def test_register_success(self):
-        """Test successful user registration."""
-        # Mock database and objects
-        mock_db = MagicMock()
-        mock_db.query.return_value.filter.return_value.first.return_value = None
-        
-        # Mock user data
-        user_data = MagicMock()
-        user_data.email = "new@example.com"
-        user_data.username = "newuser"
-        user_data.password = "password123"
-        user_data.first_name = "New"
-        user_data.last_name = "User"
-        
-        with patch('app.api.auth.get_password_hash', return_value="hashed_password"), \
-             patch('app.api.auth.create_access_token', return_value="test_access_token"):
-            # Call the register function
-            result = await register(user_data, mock_db)
-        
-        # Verify the function worked as expected
-        assert result["access_token"] == "test_access_token"
-        assert result["token_type"] == "bearer"
-        
-        # Verify user was added to database
-        mock_db.add.assert_called_once()
-        mock_db.commit.assert_called_once()
-        mock_db.refresh.assert_called_once()
-    
-    @pytest.mark.asyncio
     async def test_register_duplicate_email(self):
         """Test registration with duplicate email."""
-        # Mock database and existing user
         mock_db = MagicMock()
-        existing_user = User(email="existing@example.com")
+        email = generate_unique_email()
+        existing_user = User(email=email)
         mock_db.query.return_value.filter.return_value.first.return_value = existing_user
         
-        # Mock user data
         user_data = MagicMock()
-        user_data.email = "existing@example.com"
+        user_data.email = email
         
-        # Call the register function - should raise exception
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(RegistrationError) as exc_info:
             await register(user_data, mock_db)
         
-        # Verify the exception
-        assert excinfo.value.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Email already registered" in excinfo.value.detail
-    
-    @pytest.mark.asyncio
-    async def test_login_success(self):
-        """Test successful login."""
-        # Mock user
-        mock_user = MagicMock()
-        mock_user.email = "user@example.com"
-        mock_user.password_hash = "hashed_password"
-        
-        # Mock database
-        mock_db = MagicMock()
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
-        
-        with patch('app.api.auth.verify_password', return_value=True), \
-             patch('app.api.auth.create_access_token', return_value="test_access_token"):
-            # Test data
-            form_data = OAuth2PasswordRequestForm(username="user@example.com", password="password123", scope="")
-            
-            # Call the login function
-            result = await login(form_data, mock_db)
-        
-        # Verify the function worked as expected
-        assert result["access_token"] == "test_access_token"
-        assert result["token_type"] == "bearer"
-    
-    @pytest.mark.asyncio
-    async def test_login_user_not_found(self):
-        """Test login with non-existent user."""
-        # Mock database - no user found
-        mock_db = MagicMock()
-        mock_db.query.return_value.filter.return_value.first.return_value = None
-        
-        # Test data
-        form_data = OAuth2PasswordRequestForm(username="nonexistent@example.com", password="password", scope="")
-        
-        # Call the login function - should raise exception
-        with pytest.raises(HTTPException) as excinfo:
-            await login(form_data, mock_db)
-        
-        # Verify the exception
-        assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "Incorrect email or password" in excinfo.value.detail
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-REG-DUP-001"
+        assert error.error_context.source == "auth.registration"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert error.error_context.additional_data.get("email") == email
     
     @pytest.mark.asyncio
     async def test_login_incorrect_password(self):
         """Test login with incorrect password."""
-        # Mock user
+        email = generate_unique_email()
         mock_user = MagicMock()
-        mock_user.email = "user@example.com"
-        mock_user.password_hash = "hashed_password"
+        mock_user.email = email
+        mock_user.password_hash = get_password_hash("correctpassword")
         
-        # Mock database
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = mock_user
         
-        with patch('app.api.auth.verify_password', return_value=False):
-            # Test data
-            form_data = OAuth2PasswordRequestForm(username="user@example.com", password="wrongpassword", scope="")
-            
-            # Call the login function - should raise exception
-            with pytest.raises(HTTPException) as excinfo:
-                await login(form_data, mock_db)
+        form_data = OAuth2PasswordRequestForm(
+            username=email,
+            password="wrongpassword",
+            scope=""
+        )
         
-        # Verify the exception
-        assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "Incorrect email or password" in excinfo.value.detail
+        with pytest.raises(InvalidCredentialsError) as exc_info:
+            await login(form_data, mock_db)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-CRED-INV-001"
+        assert error.error_context.source == "auth.login"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert error.error_context.additional_data.get("email") == email
+
+    @pytest.mark.asyncio
+    async def test_register_database_error(self):
+        """Test registration with database error."""
+        mock_db = MagicMock()
+        mock_db.add.side_effect = SQLAlchemyError("Database error")
+        
+        user_data = MagicMock()
+        user_data.email = generate_unique_email()
+        user_data.password = "ValidPassword123!"
+        
+        with pytest.raises(RegistrationError) as exc_info:
+            await register(user_data, mock_db)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-REG-DB-001"
+        assert error.error_context.source == "auth.registration"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert error.error_context.additional_data.get("email") == user_data.email
+
+    @pytest.mark.asyncio
+    async def test_login_rate_limit_exceeded(self):
+        """Test login with rate limit exceeded."""
+        email = generate_unique_email()
+        mock_user = MagicMock()
+        mock_user.email = email
+        mock_user.password_hash = get_password_hash("correctpassword")
+        mock_user.failed_login_attempts = 5
+        mock_user.last_failed_login = datetime.now(UTC) - timedelta(minutes=5)
+        
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+        
+        form_data = OAuth2PasswordRequestForm(
+            username=email,
+            password="wrongpassword",
+            scope=""
+        )
+        
+        with pytest.raises(AuthenticationError) as exc_info:
+            await login(form_data, mock_db)
+        
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-RATE-LIM-001"
+        assert error.error_context.source == "auth.login"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+        assert error.error_context.additional_data.get("email") == email
+        assert "retry_after" in error.error_context.additional_data
 
 
 class TestDependencies:
-    def test_get_db(self):
-        """Test get_db dependency yields a database session."""
-        from app.api.dependencies import get_db
-        
-        # Create a generator from the dependency
-        db_gen = get_db()
-        
-        # Get the yielded session (first yield)
-        db = next(db_gen)
-        
-        # Verify we got a session-like object
-        assert hasattr(db, 'close')
-        
-        # Try to close the generator - should not raise exceptions
-        try:
-            # This should trigger the finally block
-            db_gen.close()
-        except Exception as e:
-            pytest.fail(f"get_db generator failed to close properly: {e}")
-    
-    def test_get_current_user_success(self):
-        """Test get_current_user dependency with valid token."""
-        # Mock JWT decode
-        mock_jwt_decode = MagicMock(return_value={"sub": "user@example.com"})
-        
-        # Mock database and user
-        mock_db = MagicMock()
-        mock_user = MagicMock()
-        mock_user.email = "user@example.com"
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
-        
-        with patch('app.api.dependencies.jwt.decode', mock_jwt_decode):
-            # Call the function
-            result = dep_get_current_user("valid_token", mock_db)
-        
-        # Verify result
-        assert result == mock_user
-    
     def test_get_current_user_invalid_token(self):
         """Test get_current_user dependency with invalid token."""
-        with patch('app.api.dependencies.jwt.decode', side_effect=jwt.JWTError()):
-            # Call the function - should raise exception
-            with pytest.raises(HTTPException) as excinfo:
-                dep_get_current_user("invalid_token", MagicMock())
+        with pytest.raises(TokenError) as exc_info:
+            dep_get_current_user("invalid_token")
         
-        # Verify the exception
-        assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "Could not validate credentials" in excinfo.value.detail
-    
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-TOK-INV-001"
+        assert error.error_context.source == "auth.dependencies"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+
     def test_get_current_user_user_not_found(self):
-        """Test get_current_user dependency with valid token but non-existent user."""
-        # Mock JWT decode
-        mock_jwt_decode = MagicMock(return_value={"sub": "nonexistent@example.com"})
+        """Test get_current_user dependency with non-existent user."""
+        access_token = create_access_token({"sub": "nonexistent@example.com"})
         
-        # Mock database - no user found
-        mock_db = MagicMock()
-        mock_db.query.return_value.filter.return_value.first.return_value = None
+        with pytest.raises(UserNotFoundError) as exc_info:
+            dep_get_current_user(access_token)
         
-        with patch('app.api.dependencies.jwt.decode', mock_jwt_decode):
-            # Call the function - should raise exception
-            with pytest.raises(HTTPException) as excinfo:
-                dep_get_current_user("valid_token", mock_db)
+        error = exc_info.value
+        assert error.error_context.error_code == "AUTH-USR-404"
+        assert error.error_context.source == "auth.dependencies"
+        assert error.error_context.severity == ErrorSeverity.ERROR
+
+    def test_get_current_user_database_error(self):
+        """Test get_current_user dependency with database error."""
+        access_token = create_access_token({"sub": "test@example.com"})
         
-        # Verify the exception
-        assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "Could not validate credentials" in excinfo.value.detail 
+        with patch('app.api.dependencies.get_db') as mock_get_db:
+            mock_db = MagicMock()
+            mock_db.query.side_effect = SQLAlchemyError("Database error")
+            mock_get_db.return_value = mock_db
+            
+            with pytest.raises(AuthenticationError) as exc_info:
+                dep_get_current_user(access_token)
+            
+            error = exc_info.value
+            assert error.error_context.error_code == "AUTH-DB-ERR-001"
+            assert error.error_context.source == "auth.dependencies"
+            assert error.error_context.severity == ErrorSeverity.ERROR
+
+    def test_get_current_user_inactive_user(self):
+        """Test get_current_user dependency with inactive user."""
+        email = "inactive@example.com"
+        access_token = create_access_token({"sub": email})
+        
+        with patch('app.api.dependencies.get_db') as mock_get_db:
+            mock_user = MagicMock()
+            mock_user.email = email
+            mock_user.is_active = False
+            
+            mock_db = MagicMock()
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+            mock_get_db.return_value = mock_db
+            
+            with pytest.raises(AuthenticationError) as exc_info:
+                dep_get_current_user(access_token)
+            
+            error = exc_info.value
+            assert error.error_context.error_code == "AUTH-USR-INACT-001"
+            assert error.error_context.source == "auth.dependencies"
+            assert error.error_context.severity == ErrorSeverity.ERROR
+            assert error.error_context.additional_data.get("email") == email
+
+# Add more test cases for other error scenarios...
+
+if __name__ == "__main__":
+    pytest.main(["-v", __file__]) 

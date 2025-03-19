@@ -5,8 +5,8 @@ import { formatApiError } from './errorHandling'
 
 // Create axios instance
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-  timeout: 30000, // 30 seconds
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080',
+  timeout: 30000, // 30 seconds default timeout
   withCredentials: true,
   headers: {
     'Accept': 'application/json',
@@ -25,6 +25,12 @@ instance.interceptors.request.use(
     // If token exists, add it to request headers
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+
+    // Set longer timeout for image generation endpoints
+    if (config.url?.includes('/api/images/generate') || 
+        config.url?.includes('/api/characters/generate-image')) {
+      config.timeout = 120000; // 2 minutes for image generation
     }
 
     return config
@@ -54,27 +60,59 @@ instance.interceptors.response.use(
     const originalRequest = error.config
 
     // Handle token refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true
+    if (error.response?.status === 401) {
+      // Skip token refresh for auth endpoints
+      if (originalRequest.url?.includes('/api/auth/')) {
+        return Promise.reject(error);
+      }
 
-      try {
-        // Try to refresh token
-        const response = await instance.post('/api/auth/refresh')
-        const { access_token } = response.data
+      // Check if this is a token verification error
+      const isTokenVerificationError = error.response?.data?.detail?.includes('Signature verification failed');
+      if (isTokenVerificationError) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return Promise.reject(error);
+      }
 
-        // Update token in localStorage
-        localStorage.setItem('token', access_token)
+      // Only attempt refresh if not already retrying and we have a token
+      const token = localStorage.getItem('token');
+      if (!error.config._retry && token) {
+        error.config._retry = true;
+        try {
+          const response = await instance.post('/api/auth/refresh');
+          const { access_token } = response.data;
+          localStorage.setItem('token', access_token);
+          
+          // Update the failed request's authorization header
+          originalRequest.headers.Authorization = `Bearer ${access_token}`;
+          return instance(originalRequest);
+        } catch (e) {
+          // If refresh fails, clear token and redirect to login
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return Promise.reject(e);
+        }
+      }
+    }
 
-        // Update Authorization header
-        originalRequest.headers.Authorization = `Bearer ${access_token}`
+    // Handle timeout errors specifically
+    if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
+      const retryCount = originalRequest._retryCount || 0;
+      if (retryCount < 2) { // Allow up to 2 retries
+        originalRequest._retryCount = retryCount + 1;
+        return instance(originalRequest);
+      }
+    }
 
-        // Retry the original request
-        return instance(originalRequest)
-      } catch (refreshError) {
-        // If refresh fails, clear token and reject with original error
-        localStorage.removeItem('token')
-        console.error('Token refresh failed:', refreshError)
-        return Promise.reject(formatApiError(error))
+    // Handle rate limit errors
+    if (error.response?.status === 429) {
+      const retryAfter = parseInt(error.response.headers['retry-after'] || '60');
+      const retryCount = originalRequest._retryCount || 0;
+      
+      if (retryCount < 2) { // Allow up to 2 retries
+        originalRequest._retryCount = retryCount + 1;
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return instance(originalRequest);
       }
     }
 
@@ -83,9 +121,9 @@ instance.interceptors.response.use(
       status: error.response?.status,
       data: error.response?.data,
       message: error.message,
-    })
+    });
 
-    return Promise.reject(formatApiError(error))
+    return Promise.reject(formatApiError(error));
   }
 )
 

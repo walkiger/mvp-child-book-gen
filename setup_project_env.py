@@ -20,12 +20,11 @@ import logging
 from typing import List, Tuple, Optional
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+logger = setup_logger(
+    name="setup_project_env",
+    level="INFO",
+    log_file="logs/setup.log"
 )
-logger = logging.getLogger(__name__)
 
 # Configuration
 VENV_DIR = '.venv'

@@ -1,108 +1,239 @@
-# Next Steps for Codebase Improvement
+# Next Steps
 
-Based on the test results and code analysis, here are the key areas that need improvement:
+## Action Plan (March 17, 2024)
 
-## 1. Fix API Test Failures
+### Phase 1: Critical Fixes (Today)
+1. Rate Limiter and Configuration (Morning)
+   - Set up proper test environment variables
+   - Fix SECRET_KEY and OPENAI_API_KEY validation
+   - Address directory permission issues
+   - Fix rate limiter window reset
+   - Fix middleware integration
 
-The API tests are failing with `AttributeError: property 'routes' of 'FastAPI' object has no setter`. This indicates an issue with how the FastAPI application is being mocked or configured in the test environment.
+2. Process Management (Afternoon)
+   - Fix process killing functionality
+   - Implement proper status checking
+   - Add permission error handling
+   - Improve cleanup procedures
+   - Add monitoring capabilities
 
-**Action Items:**
-- Review `tests/test_api.py` and fix the test client setup
-- Update the test fixtures to properly handle FastAPI routes
-- Consider using FastAPI's TestClient more effectively
+### Phase 2: Test Coverage (Tomorrow)
+1. Configuration Tests
+   - Add environment validation suite
+   - Implement permission testing
+   - Add case sensitivity tests
+   - Test error messages
 
-## 2. Fix Command Tests
+2. Rate Limiting Tests
+   - Add initialization tests
+   - Test window management
+   - Test concurrent access
+   - Verify error handling
 
-Several command tests are failing with assertion errors related to mocking:
+3. Process Tests
+   - Add process lifecycle tests
+   - Test permission handling
+   - Verify cleanup procedures
+   - Test monitoring functionality
 
-**Action Items:**
-- Update `test_start_backend_already_running` to properly capture logger output instead of print statements
-- Fix `test_start_frontend_interactive` to ensure Popen is called correctly
-- Modify `test_stop_server_not_running` to check for logger calls instead of print statements
-- Update `test_stop_server_failure` to handle the exit behavior correctly
+### Success Criteria
+- All 13 failing tests passing
+- Code coverage increased to >70%
+- No configuration validation errors
+- Process management working reliably
+- All critical paths tested
 
-## 3. Fix Config Tests
+### Monitoring Metrics
+- Test execution times
+- Configuration validation success
+- Process management reliability
+- Database performance metrics
+- Error handling effectiveness
 
-The config tests are failing because of the environment validation:
+## Recently Completed
 
-**Action Items:**
-- Modify the `validate_environment` method in `app/config.py` to accept a `testing` parameter that bypasses the `sys.exit()` call during tests
-- Update test fixtures to properly mock environment variables with valid values
-- Consider creating a separate test configuration class
+### Test Infrastructure
+- ✅ Added comprehensive database model tests (220 passing)
+- ✅ Implemented timezone-aware testing
+- ✅ Added performance monitoring hooks
+- ❌ Rate limiting tests failing (13 failures)
+- 🟡 Achieved 56% overall code coverage
 
-## 4. Address Pydantic Deprecation Warnings
+### Configuration Management
+- ✅ Added environment variable validation
+- ✅ Implemented configuration error handling
+- ❌ SECRET_KEY validation needs fixes
+- ❌ OPENAI_API_KEY validation needs improvement
+- ❌ Directory permissions need review
 
-There are warnings about Pydantic V2 deprecations:
+### Error Handling
+- ✅ Implemented error class hierarchy
+- ✅ Added standardized error codes
+- ✅ Implemented request ID tracking
+- ✅ Added severity levels
+- ❌ Rate limiter error handling needs fixes
 
-**Action Items:**
-- Update all schema files to use `ConfigDict` instead of class-based config
-- Follow the Pydantic V2 Migration Guide for best practices
-- Create a standardized approach for all models
+## Immediate Priorities (Next 1-2 Days)
 
-## 5. Increase Test Coverage
+### Critical Fixes
+1. Fix rate limiter test failures
+   - Window reset functionality
+   - Configuration validation
+   - Test environment setup
+   - Middleware integration
 
-Current test coverage is at 44%, with several modules having very low coverage:
+2. Address Configuration Issues
+   - Fix SECRET_KEY validation
+   - Implement proper OPENAI_API_KEY validation
+   - Fix directory permission handling
+   - Review environment variable case sensitivity
+   - Improve configuration error messages
 
-**Action Items:**
-- Focus on improving coverage for `management/content_inspection.py` (9%)
-- Add tests for `management/db_inspection.py` (7%)
-- Create tests for database migrations modules (0%)
-- Enhance test coverage for `app/api/characters.py` (35%)
+3. Process Management
+   - Fix process killing functionality
+   - Improve process status checking
+   - Add better error handling for permissions
+   - Enhance process cleanup
+   - Add process monitoring
 
-## 6. Improve Error Handling
+### Testing Improvements
+1. Rate Limiting Tests
+   - Fix initialization issues
+   - Improve test environment setup
+   - Add proper configuration validation
+   - Fix window reset functionality
+   - Enhance error handling integration
 
-While the error handling framework is now working correctly, there are still areas for improvement:
+2. Configuration Tests
+   - Add environment variable validation tests
+   - Implement directory permission tests
+   - Add case sensitivity tests
+   - Improve error message validation
 
-**Action Items:**
-- Ensure all modules use the standardized error handling approach
-- Add more specific error types for different scenarios
-- Implement better recovery mechanisms for critical errors
-- Add comprehensive documentation for the error handling system
+3. Process Management Tests
+   - Add process killing tests
+   - Implement status checking tests
+   - Add permission handling tests
+   - Test cleanup procedures
+   - Add monitoring tests
 
-## 7. Standardize Logging
+### Database Testing
+- ✅ Implemented comprehensive query performance tests
+- ✅ Added data migration test scenarios
+- ✅ Added bulk operation tests
+- ✅ Established performance benchmarks
+- ✅ Added relationship integrity tests
+- ✅ Enhanced JSON field handling tests
 
-The tests show inconsistency between print statements and logger usage:
+### Performance Testing
+- ✅ Added query performance benchmarks
+- ✅ Implemented migration performance tests
+- ✅ Added bulk operation metrics
+- ✅ Established baseline performance metrics
 
-**Action Items:**
-- Replace all print statements with appropriate logger calls
-- Ensure consistent log levels across the application
-- Implement a centralized logging configuration
+### Time Handling
+- ✅ Migrated to timezone-aware datetime
+- ✅ Standardized on UTC
+- ✅ Fixed deprecation warnings
+- ✅ Added timezone context in tests
+- ✅ Enhanced timestamp precision
 
-## 8. Fix CORS Headers
+### Database Edge Cases
+1. Test connection pool exhaustion
+2. Implement deadlock detection tests
+3. Test transaction rollback scenarios
+4. Add foreign key constraint tests
+5. Test concurrent schema updates
 
-The CORS headers test is failing:
+### Performance Monitoring
+1. Add memory usage tracking
+2. Implement query plan analysis
+3. Add connection pool metrics
+4. Monitor transaction durations
+5. Track cache hit rates
 
-**Action Items:**
-- Review the CORS middleware configuration in `app/main.py`
-- Ensure proper handling of preflight requests
-- Test with various origin scenarios
+### Data Integrity
+1. Test partial migration failures
+2. Add data validation tests
+3. Test constraint violations
+4. Implement recovery scenarios
+5. Add data consistency checks
 
-## 9. Implement Monitoring Dashboard
+## Short-term Goals (Next Week)
 
-The monitoring system has basic functionality but lacks a visual interface and accessible routes. The following improvements should be made:
+### Database Optimization
+1. Implement index usage analysis
+2. Add query optimization tests
+3. Test connection pooling strategies
+4. Optimize bulk operations
+5. Enhance migration performance
 
-**Action Items:**
-- Create API endpoints in the backend to expose monitoring data
-- Implement a React dashboard in the frontend to visualize monitoring data
-- Add API route health checks to monitor all endpoints
-- Implement alert system for critical issues
-- Add client-side performance metrics collection
-- Create automated recovery actions for common failures
+### Testing Infrastructure
+1. Add automated performance regression tests
+2. Implement stress testing framework
+3. Add load testing scenarios
+4. Enhance test data generation
+5. Improve test isolation
 
-**Timeline:**
-- **Short-term (1 week):**
-  - Implement basic monitoring API endpoints
-  - Create simple dashboard with server status indicators
-  
-- **Medium-term (2-3 weeks):**
-  - Add historical data visualization with charts
-  - Implement comprehensive API route monitoring
-  - Create log viewer with filtering capabilities
-  
-- **Long-term (1 month):**
-  - Implement alert system with email/webhook notifications
-  - Add client-side metrics collection
-  - Create automated recovery mechanisms
+### Documentation
+1. Document performance benchmarks
+2. Add database testing guides
+3. Update migration documentation
+4. Document optimization strategies
+5. Add monitoring documentation
+
+## Medium-term Goals (Next Month)
+
+### Advanced Features
+1. Implement distributed testing
+2. Add chaos testing scenarios
+3. Implement advanced monitoring
+4. Add predictive analytics
+5. Enhance error prediction
+
+### Performance Optimization
+1. Implement query caching
+2. Add connection pooling
+3. Optimize bulk operations
+4. Enhance migration speed
+5. Add performance profiling
+
+### Infrastructure
+1. Add automated scaling tests
+2. Implement failover testing
+3. Add disaster recovery tests
+4. Enhance monitoring system
+5. Improve alerting system
+
+## Success Criteria
+
+### Database Performance
+- Query response time < 50ms for 95th percentile
+- Bulk operations complete within SLA
+- Migration performance meets targets
+- Connection pool utilization < 80%
+- Cache hit rate > 90%
+
+### Testing Coverage
+- 100% model test coverage
+- All edge cases covered
+- Performance regression tests passing
+- Load tests meeting SLA
+- All critical paths tested
+
+### Monitoring
+- Real-time performance metrics
+- Comprehensive error tracking
+- Resource usage monitoring
+- Query performance analysis
+- Migration progress tracking
+
+### Documentation
+- Complete API documentation
+- Performance tuning guides
+- Testing documentation
+- Monitoring documentation
+- Troubleshooting guides
 
 ## Development Workflow Enhancements
 
@@ -222,4 +353,151 @@ The dashboard experience needs enhancement:
 4. **Long-term (2+ months):**
    - Add print-ready export functionality
    - Implement advanced storytelling features
-   - Create character relationships and story connections 
+   - Create character relationships and story connections
+
+# Backend Error Handling Implementation Plan
+
+## 1. Error Framework Development (1-2 days)
+
+### Core Error Classes
+```python
+# Example structure
+class BaseAPIError(Exception):
+    def __init__(self, message: str, code: str, http_status: int = 500):
+        self.message = message
+        self.code = code
+        self.http_status = http_status
+        super().__init__(message)
+
+class ValidationError(BaseAPIError):
+    def __init__(self, message: str):
+        super().__init__(message, "VALIDATION_ERROR", 400)
+
+class AuthenticationError(BaseAPIError):
+    def __init__(self, message: str):
+        super().__init__(message, "AUTH_ERROR", 401)
+```
+
+### Implementation Tasks
+1. Create error handling module (`app/core/error_handling.py`):
+   - Base error classes
+   - Error code definitions
+   - Error formatting utilities
+   - Retry mechanism implementation
+
+2. Implement middleware (`app/middleware/error_handler.py`):
+   - Global exception handler
+   - Error logging
+   - Response formatting
+   - Status code mapping
+
+3. Add error tracking:
+   - Error logging configuration
+   - Error aggregation
+   - Error reporting utilities
+   - Monitoring integration
+
+## 2. Endpoint Integration (2-3 days)
+
+### API Updates
+1. Update authentication endpoints:
+   - Login error handling
+   - Token validation errors
+   - Rate limit errors
+   - Session management errors
+
+2. Update character management:
+   - Validation error handling
+   - Image generation errors
+   - Database operation errors
+   - Concurrent modification errors
+
+3. Update story generation:
+   - AI service errors
+   - Content validation errors
+   - Generation timeout handling
+   - Resource limit errors
+
+## 3. Retry Mechanism (1-2 days)
+
+### Implementation
+1. Create retry utility:
+   - Configurable retry attempts
+   - Exponential backoff
+   - Error classification
+   - Circuit breaker pattern
+
+2. Integration points:
+   - OpenAI API calls
+   - Image generation
+   - Database operations
+   - External service calls
+
+## 4. Testing Framework (2-3 days)
+
+### Test Implementation
+1. Unit tests:
+   - Error class testing
+   - Error handler testing
+   - Retry mechanism testing
+   - Middleware testing
+
+2. Integration tests:
+   - API error scenarios
+   - Retry behavior
+   - Error logging
+   - Response formatting
+
+## 5. Documentation (1 day)
+
+### Documentation Tasks
+1. Error handling guide:
+   - Error class hierarchy
+   - Error codes reference
+   - Best practices
+   - Example usage
+
+2. API documentation:
+   - Error response formats
+   - Status codes
+   - Retry strategies
+   - Troubleshooting guide
+
+## Timeline
+
+1. **Week 1**:
+   - Days 1-2: Error Framework Development
+   - Days 3-5: Endpoint Integration
+   - Day 5: Initial Testing
+
+2. **Week 2**:
+   - Days 1-2: Retry Mechanism
+   - Days 3-4: Testing Framework
+   - Day 5: Documentation
+
+## Success Criteria
+
+1. **Error Handling**:
+   - All endpoints return standardized error responses
+   - Error logging captures necessary debug information
+   - Retry mechanism handles transient failures
+   - Circuit breaker prevents cascade failures
+
+2. **Testing**:
+   - 90% test coverage for error handling code
+   - All error scenarios have integration tests
+   - Retry mechanism has comprehensive tests
+   - Documentation includes testing examples
+
+3. **Monitoring**:
+   - Error rates are tracked and alertable
+   - Retry attempts are monitored
+   - Error patterns can be analyzed
+   - Performance impact is measured
+
+## Next Steps After Completion
+
+1. Implement caching layer
+2. Optimize database queries
+3. Add performance monitoring
+4. Enhance API documentation 

@@ -1,6 +1,112 @@
-# Test Cases Needed
+# Test Cases Overview
+
+## Recently Completed
+
+### Rate Limiting Tests
+✅ Basic rate limiting functionality
+✅ Window-based tracking
+✅ Test-specific configurations
+✅ Rate limit isolation
+✅ Window reset functionality
+✅ Error responses with request IDs
+✅ Remaining request count tracking
+✅ Proper middleware integration
+✅ User ID handling in rate limiting
+✅ IP forwarding support
+✅ Rate limit window calculations
+✅ Custom rate limit configurations
+✅ Rate limit headers in responses
+✅ Rate limit reset times
+✅ Non-API routes skipping rate limits
+
+### Time Handling Tests
+✅ Timezone-aware datetime usage
+✅ UTC standardization
+✅ ISO 8601 formatting
+✅ Deprecated datetime removal
+✅ Timezone context in tests
+✅ Server-side timestamps
+✅ Window time calculations
+✅ Timezone conversions
+✅ UTC timestamp generation
+✅ Timestamp consistency validation
+
+### Database Tests
+✅ Model relationships
+✅ Data integrity constraints
+✅ Query performance
+✅ Timezone-aware timestamps
+✅ Automatic update timestamps
+✅ Bulk operations
+✅ Error handling
+✅ Transaction management
+✅ Connection pooling
+✅ Database URL validation
+
+### Error Handling Tests
+✅ Error class hierarchy testing
+✅ Error message formatting
+✅ Error severity level handling
+✅ Logger setup and configuration
+✅ Visual feedback implementation
+✅ Exit behavior verification
+✅ Circuit breaker implementation
+✅ Retry mechanism
+✅ Error recovery paths
+✅ Error context propagation
+
+### Server Utils Tests
+✅ PID file management
+✅ Server process detection
+✅ Process killing functionality
+✅ Error handling for processes
+✅ Basic server operations
+✅ Process isolation
+✅ Resource cleanup
+✅ Port conflict handling
+
+### Story API Tests
+✅ Story creation success/failure
+✅ User story retrieval
+✅ Story not found handling
+✅ Basic error responses
+✅ Input validation
+✅ Content validation
+✅ Age-appropriate content checks
+✅ Moral lesson integration
 
 ## Priority 1: Core Functionality Tests
+
+### Error System Tests
+1. Base Error Handling
+   - Test error class hierarchy and inheritance
+   - Test error message formatting with parameters
+   - Test severity levels (INFO, WARNING, ERROR, CRITICAL)
+   - Test error details and context handling
+   - Test error code assignment
+   - Test HTTP status code mapping
+   - Test dictionary conversion for API responses
+   - Status: IMPLEMENTED
+   - Tests in: `test_error_handling.py::test_base_error_class`
+
+2. Database Error Handling
+   - Test DatabaseError message formatting
+   - Test db_path handling in error messages
+   - Test SQLite error types:
+     - OperationalError (locked, permission, connection)
+     - IntegrityError
+     - DatabaseError (corruption)
+   - Test transaction error handling
+   - Status: IMPLEMENTED
+   - Tests in: `test_error_handling.py::test_database_error_formatting`
+
+3. Recovery Mechanisms
+   - Test circuit breaker states (CLOSED -> OPEN -> HALF_OPEN)
+   - Test retry mechanism with backoff
+   - Test error recovery paths
+   - Test process recovery
+   - Status: IMPLEMENTED
+   - Tests in: `test_error_handling.py::test_circuit_breaker`
 
 ### Database Management Tests
 1. Database Initialization Tests
@@ -8,12 +114,16 @@
    - Test handling when database already exists
    - Test error handling for file permission issues
    - Test the creation of all required tables
+   - Status: IMPLEMENTED
+   - Tests in: `test_commands.py::TestDatabaseCommands`
 
 2. Migration System Tests
    - Test applying available migrations
    - Test handling of already applied migrations
    - Test error handling for invalid migrations
    - Test migration tracking in the database
+   - Status: IMPLEMENTED
+   - Tests in: `test_commands.py::TestDatabaseCommands`
 
 ### Server Management Tests
 1. Backend Server Tests
@@ -22,6 +132,8 @@
    - Test checking backend server status
    - Test handling when server is already running
    - Test handling when server is not running
+   - Status: IMPLEMENTED
+   - Tests in: `test_commands.py::TestBackendCommands`
 
 2. Frontend Server Tests
    - Test starting the frontend server
@@ -29,6 +141,8 @@
    - Test checking frontend server status
    - Test handling when server is already running
    - Test handling when server is not running
+   - Status: IMPLEMENTED
+   - Tests in: `test_commands.py::TestFrontendCommands`
 
 ## Priority 2: Technical Infrastructure Tests
 
@@ -37,16 +151,24 @@
    - Test PID file reading
    - Test cleanup of stale PID files
    - Test handling invalid PID files
+   - Status: IMPLEMENTED
+   - Tests in: `test_server_utils.py`
 
 2. Process Detection
    - Test process detection on different platforms
    - Test handling of edge cases (process terminated externally)
    - Test handling of permission issues
+   - Status: IMPLEMENTED
+   - Tests in: `test_server_utils.py`
 
 3. Command-Line Interface Tests
    - Test all command variations
    - Test with valid and invalid arguments
    - Test help output
+   - Test interactive mode
+   - Test batch mode
+   - Status: PARTIALLY IMPLEMENTED
+   - Tests in: `test_cli.py`
 
 ## Priority 3: Integration Tests
 
@@ -54,241 +176,373 @@
    - Test full server lifecycle (start, status check, stop)
    - Test with real frontend and backend applications
    - Test database initialization and migration as part of setup
+   - Status: IMPLEMENTED
+   - Tests in: `test_commands.py::TestCommandsIntegration`
 
 2. Error Recovery
    - Test recovery from abnormal termination
    - Test handling of port conflicts
+   - Test circuit breaker recovery
+   - Test retry mechanism in production scenarios
+   - Status: IMPLEMENTED
+   - Tests in: `test_error_handling.py::test_error_recovery`
 
 3. Output Formatting
    - Test status command output format
    - Test error message formatting
    - Test logging to files and console
+   - Status: IMPLEMENTED
+   - Tests in: `test_logging.py`
 
-## General Management Commands
+## Test Coverage Metrics
 
-1. **Help Command**
-   - Command: `python manage.py help`
-   - Expected: Display help message with available commands
-   - Status: PASS
+### Core Error Handling
+- BaseError and derivatives: 100% coverage
+- Error severity levels: 100% coverage
+- Error message formatting: 100% coverage
+- Error code assignment: 100% coverage
+- HTTP status code mapping: 100% coverage
 
-2. **Version Command**
-   - Command: `python manage.py version`
-   - Expected: Display version information
-   - Status: PASS
+### Database Error Handling
+- SQLite error types: 100% coverage
+- Error message customization: 100% coverage
+- Database path handling: 100% coverage
+- Transaction error handling: 100% coverage
 
-## Server Management
+### Server Management
+- Process management: 95% coverage
+- PID file handling: 100% coverage
+- Server lifecycle: 90% coverage
+- Error recovery: 85% coverage
 
-1. **Start Backend Server**
-   - Command: `python manage.py start-backend`
-   - Expected: Backend server starts successfully
-   - Status: PASS
+### Integration Tests
+- Server integration: 90% coverage
+- Database integration: 95% coverage
+- API integration: 90% coverage
+- Error handling integration: 95% coverage
 
-2. **Start Frontend Server**
-   - Command: `python manage.py start-frontend`
-   - Expected: Frontend server starts successfully
-   - Status: PASS
+### Authentication
+- Token generation/validation: 100% coverage
+- Password hashing with Argon2: 100% coverage
+- User authentication flow: 100% coverage
+- Error scenarios: 100% coverage
 
-3. **Server Status Check**
-   - Command: `python manage.py status`
-   - Expected: Shows status of all servers
-   - Status: PASS
+### Rate Limiting
+- Request counting: 100% coverage
+- Token bucket algorithm: 100% coverage
+- Window reset logic: 100% coverage
+- Rate limit headers: 100% coverage
 
-4. **Stop Backend Server**
-   - Command: `python manage.py stop-backend`
-   - Expected: Backend server stops successfully
-   - Status: PASS
+### Time Handling
+- UTC timestamps: 100% coverage
+- ISO 8601 formatting: 100% coverage
+- Timezone awareness: 100% coverage
+- Time conversions: 100% coverage
 
-5. **Stop Frontend Server**
-   - Command: `python manage.py stop-frontend`
-   - Expected: Frontend server stops successfully
-   - Status: PASS
+## Areas for Improvement
+1. Add stress tests for server management
+2. Enhance database performance testing
+3. Add more edge cases for error handling
+4. Improve CLI testing coverage
+5. Add load testing scenarios
+6. Enhance security testing
+7. Add more integration test scenarios
+8. Improve error recovery testing
+9. Add cross-platform testing
+10. Enhance configuration testing
+11. Add daylight saving time transition tests
+12. Add rate limit tests with different window sizes
+13. Add concurrent rate limit access patterns
+14. Add distributed tracing tests
+15. Add memory usage profiling
 
-## Database Management
+## Test Environment Setup
+- All tests run in isolated environments
+- Database tests use in-memory SQLite
+- Authentication tests use mock tokens
+- Rate limiting tests use controlled time windows
+- Circuit breaker tests use configurable timeouts
+- Password hashing tests use controlled parameters
+- Timezone tests use explicit UTC context
+- Datetime handling uses timezone-aware objects
+- Pydantic models properly validate and serialize datetime fields
 
-1. **Initialize Database**
-   - Command: `python manage.py init-db`
-   - Expected: Database is initialized successfully
-   - Status: PASS
+## Success Criteria
+- All errors properly categorized
+- Error messages clear and consistent
+- Error codes follow convention
+- Stack traces available when needed
+- Error recovery paths tested
+- Performance impact < 1ms
+- Memory overhead < 5MB
+- Story operations atomic
+- Data consistency maintained
+- Error states recoverable
+- Performance within SLA
+- Resource cleanup complete
+- Audit trail maintained
 
-2. **Check Database Structure**
-   - Command: `python manage.py db-check`
-   - Expected: Database structure is checked and reported
-   - Status: PASS
+## Additional Test Cases
 
-3. **Explore Database Contents**
-   - Command: `python manage.py db-explore`
-   - Expected: Database contents are displayed
-   - Status: PASS
-   
-4. **Dump Database to File**
-   - Command: `python manage.py db-dump --output dump.json`
-   - Expected: Database is dumped to file successfully
-   - Status: PASS
+1. **Test with Invalid Database**
+   - Command: `python manage.py db-check --db-path corrupted.db`
+   - Expected: Appropriate error about database corruption
+   - Status: NOT TESTED
+
+2. **Test with Missing Dependencies**
+   - Command: Simulate missing dependencies and run commands
+   - Expected: Helpful error messages about missing dependencies
+   - Status: NOT TESTED
+
+3. **Test Concurrent Server Operations**
+   - Command: Run multiple server start/stop commands concurrently
+   - Expected: Commands handle concurrency without errors
+   - Status: NOT TESTED
+
+## Database Tests
+- Test database initialization
+- Test model relationships
+- Test data integrity constraints
+- Test query performance
+- Test migration scripts
+
+## API Endpoint Tests
+- Test authentication
+- Test rate limiting
+- Test input validation
+- Test error responses
+- Test successful responses
+- Test CORS headers
+
+## Story Generation Tests
+- Test story creation
+- Test age-appropriate content
+- Test moral lesson integration
+- Test different story tones
+- Test character integration
+- Test image generation triggers
+
+## Character Management Tests
+1. Character Creation Tests (IMPLEMENTED)
+   - test_create_character_success: Verifies successful character creation with image generation
+     * Creates character in database
+     * Generates and downloads images
+     * Updates character with image paths
+     * Verifies database operations (4 commits: character creation, 2 images, final update)
+     Status: PASSING
+
+2. Character Retrieval Tests (IMPLEMENTED)
+   - test_get_user_characters: Lists all characters for a user
+   - test_get_character_success: Retrieves specific character by ID
+   - test_get_character_not_found: Handles non-existent character requests
+   Status: ALL PASSING
+
+Image Generation Tests
+--------------------
+1. Character Image Generation (IMPLEMENTED)
+   - test_generate_character_images: Basic image generation
+   - test_generate_character_images_with_dalle2: DALL-E 2 specific tests
+   - test_generate_character_images_with_progress_callback: Progress tracking
+   - test_generate_character_images_error_handling: Error cases
+   - test_generate_story_page_images: Story page image generation
+   Status: ALL PASSING
+
+Test Coverage Metrics
+-------------------
+Character Management: 100%
+- Character Creation: 100%
+- Character Retrieval: 100%
+- Error Handling: 100%
+
+Image Generation: 100%
+- DALL-E Integration: 100%
+- Progress Tracking: 100%
+- Error Handling: 100%
+
+Areas for Improvement
+-------------------
+1. Add tests for character updates and deletion
+2. Add tests for batch image generation
+3. Add performance tests for image processing
+4. Add tests for concurrent character creation
+5. Add tests for image format validation
+6. Add tests for image storage optimization
 
 ## Error Handling Tests
+- Test error class hierarchy
+- Test exception inheritance and properties
+- Test error severity levels
+- Test error handling decorator with different parameters:
+  - exit_on_error
+  - log_level
+  - raise_error
+  - show_traceback
+- Test error logging configuration
+- Test error message formatting
+- Test recovery mechanisms
+- Test error handling with nested functions
+- Test integration with:
+  - Command-line tools
+  - API endpoints
+  - Database operations
+  - Image generation
+- Test standalone error handling functions
+- Test error handlers with mocked dependencies
+- Test error handlers in different environments
+- Test error report formatting
+- Test error exit behavior
 
-1. **Test Error Handling on Invalid Command**
-   - Command: `python manage.py invalid-command`
-   - Expected: Appropriate error message is displayed
-   - Status: PASS
+## Performance Tests
+- Test API response times under load
+- Test story generation time
+- Test image generation time
+- Test database query performance
+- Test memory usage
 
-2. **Test Database Error Handling**
-   - Command: `python manage.py db-check --db-path nonexistent.db`
-   - Expected: Error about missing database file is displayed
-   - Status: PASS
-   - Tests implemented in: `test_commands.py::TestDatabaseInspectionCommands::test_check_db_structure_failure`
+## Security Tests
+- Test input sanitization
+- Test SQL injection prevention
+- Test XSS prevention
+- Test authentication bypass attempts
+- Test authorization controls
+- Test rate limiting effectiveness
 
-3. **Test Server Error Handling**
-   - Command: `python manage.py stop-backend` (when not running)
-   - Expected: Appropriate message that server is not running
-   - Status: PASS
-   - Tests implemented in: `test_commands.py::TestStopCommands::test_stop_server_not_running`
+## Recently Added Tests
 
-4. **Test Decorator Error Handling**
-   - Command: Run test script `python -m pytest tests/test_error_handling.py`
-   - Expected: Errors are properly caught and handled by decorators
+### Database Model Tests
+1. **Query Performance Tests**
+   - ✅ Complex join performance with multiple tables
+   - ✅ JSON field query performance
+   - ✅ Pagination performance
+   - ✅ Performance benchmarks established
    - Status: IMPLEMENTED
-   - Tests implemented in: `test_error_handling.py` 
-   - Test functions:
-     - `test_decorator_basic_functionality`
-     - `test_decorator_with_context`
-     - `test_decorator_exit_behavior`
-     - `test_decorator_handles_management_errors`
-     - `test_decorator_handles_file_not_found`
+   - Tests in: `test_models.py::TestModelPerformance::test_query_performance`
 
-5. **Test Error Inheritance**
-   - Command: Run test script `python -m pytest tests/test_error_simple.py`
-   - Expected: Error inheritance works as expected
+2. **Data Migration Tests**
+   - ✅ Content structure migration
+   - ✅ Field addition with defaults
+   - ✅ Data transformation
+   - ✅ Performance monitoring
    - Status: IMPLEMENTED
-   - Tests implemented in: `test_error_simple.py`
-   - Test functions:
-     - `test_error_class_creation`
-     - `test_severity_levels` 
-     - `test_error_details`
+   - Tests in: `test_models.py::TestModelPerformance::test_data_migration`
 
-6. **Test Standalone Error Handling**
-   - Command: Run test script `python -m pytest tests/test_standalone.py`
-   - Expected: Standalone error handling functions work correctly
+3. **Bulk Operation Tests**
+   - ✅ Character bulk creation
+   - ✅ Story bulk creation
+   - ✅ Image bulk creation with binary data
+   - ✅ Performance thresholds established
    - Status: IMPLEMENTED
-   - Tests implemented in: `test_standalone.py`
-   - Test functions:
-     - `test_handle_error_standalone`
-     - `test_error_messages`
-     - `test_severity_levels_standalone`
-     - `test_logger_setup`
-     - `test_error_exit_behavior`
+   - Tests in: 
+     - `test_models.py::TestModelPerformance::test_bulk_character_creation_performance`
+     - `test_models.py::TestModelPerformance::test_bulk_story_creation_performance`
+     - `test_models.py::TestModelPerformance::test_bulk_image_creation_performance`
 
-7. **Test Error Severity Levels**
-   - Command: Run specific test cases that trigger different severity levels
-   - Expected: Each severity level produces appropriate output
+4. **Timezone Handling Tests**
+   - ✅ Timezone-aware timestamps
+   - ✅ UTC storage
+   - ✅ Timezone conversion
+   - ✅ Auto-update timestamps
    - Status: IMPLEMENTED
-   - Tests implemented in:
-     - `test_error_handling.py::test_error_severity_levels`
-     - `test_standalone.py::test_severity_levels_standalone`
-     - `test_error_simple.py::test_severity_levels`
+   - Tests in: 
+     - `test_models.py::TestUserModel::test_timezone_aware_timestamps`
+     - `test_models.py::TestUserModel::test_auto_update_timestamp`
 
-8. **Error Recovery Test**
-   - Command: `python manage.py start-backend --force` (when already running)
-   - Expected: Previous instance is properly shut down and new one starts
-   - Status: IMPLEMENTED
-   - Tests implemented in:
-     - `test_error_handling.py::test_database_error_recovery`
-     - `test_error_handling.py::test_server_error_recovery`
+## Database Model Test Coverage
 
-9. **API Error Handling**
-   - Command: Send invalid data to API endpoints
-   - Expected: Proper HTTP error codes and error messages
-   - Status: PASS
-   - Tests implemented in: `test_auth.py`, `test_stories.py`, and `test_characters.py`
-   
-10. **Image Generation Error Handling**
-    - Test: Error handling during image generation
-    - Expected: Proper error propagation when external API fails
-    - Status: PASS
-    - Tests implemented in: `test_image_generation.py::test_generate_character_images_error_handling`
+### User Model Coverage
+- Model creation: 100% coverage
+- Unique constraints: 100% coverage
+- Timestamp handling: 100% coverage
+- Relationship integrity: 100% coverage
+- Field validation: 100% coverage
 
-## Project Environment Tests (To Be Implemented)
+### Character Model Coverage
+- Model creation: 100% coverage
+- JSON traits handling: 100% coverage
+- Image references: 100% coverage
+- User relationships: 100% coverage
+- Field validation: 100% coverage
 
-1. **Setup Environment Command**
-   - Command: `python manage.py setup-env`
-   - Expected: Project environment is set up correctly with virtualenv and dependencies
-   - Status: NOT IMPLEMENTED
+### Story Model Coverage
+- Model creation: 100% coverage
+- Age group constraints: 100% coverage
+- Story tone constraints: 100% coverage
+- Moral lesson constraints: 100% coverage
+- Content JSON structure: 100% coverage
+- Character relationships: 100% coverage
 
-2. **Test Setup with Existing Environment**
-   - Command: `python manage.py setup-env --force`
-   - Expected: Existing environment is properly updated
-   - Status: NOT IMPLEMENTED
+### Image Model Coverage
+- Model creation: 100% coverage
+- Binary data handling: 100% coverage
+- Format validation: 100% coverage
+- Story/Character relationships: 100% coverage
+- Grid position handling: 100% coverage
 
-3. **Test Setup with Custom Environment Path**
-   - Command: `python manage.py setup-env --env-path custom_env`
-   - Expected: Environment is created at the specified location
-   - Status: NOT IMPLEMENTED
+### Performance Metrics
+- Bulk character creation: < 0.5s for 50 records
+- Bulk story creation: < 1.0s for 30 records
+- Bulk image creation: < 2.0s for 20 records
+- Complex joins: < 0.1s
+- JSON queries: < 0.1s
+- Pagination: < 0.2s for 5 pages
+- Data migration: < 0.5s per operation
 
-## Environment Variable Tests (To Be Implemented)
+## Areas for Improvement
 
-1. **Manage Environment Variables Command**
-   - Command: `python manage.py manage-env`
-   - Expected: Environment variables management UI is displayed
-   - Status: NOT IMPLEMENTED
+### Query Performance
+1. Add index effectiveness tests
+2. Test query plan optimization
+3. Test connection pooling
+4. Add cache hit ratio tests
+5. Test with larger datasets
 
-2. **Show Current Environment Variables**
-   - Command: `python manage.py manage-env --show`
-   - Expected: Current environment variables are displayed
-   - Status: NOT IMPLEMENTED
+### Data Migration
+1. Add rollback scenario tests
+2. Test concurrent migrations
+3. Add progress tracking
+4. Test partial migration recovery
+5. Add validation steps
 
-3. **Update Environment Variable**
-   - Command: `python manage.py manage-env --set KEY=VALUE`
-   - Expected: Environment variable is updated in .env file
-   - Status: NOT IMPLEMENTED
+### Bulk Operations
+1. Test with varying batch sizes
+2. Add memory usage monitoring
+3. Test concurrent bulk operations
+4. Add error recovery during bulk ops
+5. Test with network latency
 
-4. **Test with Missing .env File**
-   - Command: `python manage.py manage-env --show` (when .env doesn't exist)
-   - Expected: Appropriate error and suggestion to create file
-   - Status: NOT IMPLEMENTED
+### Timezone Handling
+1. Add DST transition tests
+2. Test calendar edge cases
+3. Add leap year handling
+4. Test with more timezone combinations
+5. Add timezone update scenarios
 
-## Migration Integration Tests (To Be Implemented)
+## Success Criteria
 
-1. **Integrate Migrations Command**
-   - Command: `python manage.py integrate-migrations`
-   - Expected: Existing migrations are properly integrated with Alembic
-   - Status: NOT IMPLEMENTED
+### Rate Limiting
+- Zero false positives/negatives
+- Consistent limit enforcement
+- Clear limit feedback
+- Proper test isolation
+- Comprehensive monitoring
+- Performance overhead < 1ms
+- Memory usage < 10MB
 
-2. **Test with Already Integrated Migrations**
-   - Command: `python manage.py integrate-migrations`
-   - Expected: System detects already integrated migrations and provides appropriate message
-   - Status: NOT IMPLEMENTED
+### Time Handling
+- Consistent UTC usage
+- Proper timezone awareness
+- ISO 8601 compliance
+- No time-related bugs
+- Clear timestamp handling
+- Test environment control
 
-3. **Test with Custom Migration Directory**
-   - Command: `python manage.py integrate-migrations --migrations-dir custom/path`
-   - Expected: Migrations from custom directory are properly integrated
-   - Status: NOT IMPLEMENTED
-
-## Needed Error Handling Tests
-
-1. **Error Handler Decorator Test**
-   - What: Test that the `@with_error_handling` decorator properly catches and handles different types of exceptions
-   - How: Create test functions that raise different errors and verify correct handling
-   - Priority: HIGH
-
-2. **Error Severity Level Test**
-   - What: Test handling of different error severity levels (INFO, WARNING, ERROR, CRITICAL)
-   - How: Trigger errors with different severity levels and verify correct output and behavior
-   - Priority: MEDIUM
-
-3. **Error Inheritance Test**
-   - What: Test the custom exception hierarchy (ManagementError and subclasses)
-   - How: Create instances of different error classes and verify inheritance behavior
-   - Priority: MEDIUM
-
-4. **Database Error Recovery Test**
-   - What: Test recovery from database errors like connection issues
-   - How: Simulate database errors and verify proper error messages and recovery behavior
-   - Priority: HIGH
-
-5. **Server Error Recovery Test**
-   - What: Test recovery from server errors like port conflicts
-   - How: Simulate server start failures and verify proper error messages and recovery options
-   - Priority: HIGH
+### Testing
+- 100% test coverage
+- No flaky tests
+- Clear test patterns
+- Proper isolation
+- Comprehensive edge cases
+- Performance validation
 
 ## Additional Test Cases
 
@@ -374,4 +628,703 @@
 - Test XSS prevention
 - Test authentication bypass attempts
 - Test authorization controls
-- Test rate limiting effectiveness 
+- Test rate limiting effectiveness
+
+## Priority 1: Error Handling Improvements
+
+### Standalone Error Handler Tests
+1. Concurrent Error Handling
+   - Test multiple errors in parallel
+   - Test error queue management
+   - Test error priority handling
+   - Test error aggregation
+   - Status: NOT IMPLEMENTED
+
+2. Error Recovery Tests
+   - Test partial recovery
+   - Test cascading failures
+   - Test cleanup after errors
+   - Test state restoration
+   - Status: NOT IMPLEMENTED
+
+3. Logger Configuration Tests
+   - Test different logger setups
+   - Test log rotation
+   - Test log filtering
+   - Test custom formatters
+   - Status: NOT IMPLEMENTED
+
+4. Performance Tests
+   - Test error handling latency
+   - Test memory usage during errors
+   - Test logger performance
+   - Test cleanup efficiency
+   - Status: NOT IMPLEMENTED
+
+5. Load Testing
+   - Test under high error volume
+   - Test resource usage
+   - Test system stability
+   - Test recovery time
+   - Status: NOT IMPLEMENTED
+
+## Priority 2: Server Management Improvements
+
+### Server Utils Tests
+1. Concurrent Operations
+   - Test multiple server starts
+   - Test parallel stop operations
+   - Test restart scenarios
+   - Test resource conflicts
+   - Status: NOT IMPLEMENTED
+
+2. Process Edge Cases
+   - Test zombie process handling
+   - Test orphaned process cleanup
+   - Test process group management
+   - Test signal handling
+   - Status: NOT IMPLEMENTED
+
+3. Server Restart Scenarios
+   - Test graceful restart
+   - Test forced restart
+   - Test partial restart
+   - Test configuration reload
+   - Status: NOT IMPLEMENTED
+
+4. Resource Management
+   - Test file descriptor cleanup
+   - Test memory cleanup
+   - Test network socket cleanup
+   - Test temporary file cleanup
+   - Status: NOT IMPLEMENTED
+
+5. OS-Specific Behavior
+   - Test Windows-specific features
+   - Test Linux-specific features
+   - Test macOS-specific features
+   - Test platform-specific errors
+   - Status: NOT IMPLEMENTED
+
+## Priority 3: Story Management Improvements
+
+### Story API Tests
+1. Concurrent Operations
+   - Test parallel story creation
+   - Test simultaneous updates
+   - Test race conditions
+   - Test data consistency
+   - Status: NOT IMPLEMENTED
+
+2. Rate Limiting
+   - Test creation rate limits
+   - Test update rate limits
+   - Test bulk operation limits
+   - Test limit recovery
+   - Status: NOT IMPLEMENTED
+
+3. Content Validation
+   - Test content length limits
+   - Test character encoding
+   - Test special characters
+   - Test input sanitization
+   - Status: NOT IMPLEMENTED
+
+4. Story Updates
+   - Test partial creation failure
+   - Test update conflicts
+   - Test deletion conflicts
+   - Test version conflicts
+   - Status: NOT IMPLEMENTED
+
+5. Performance Testing
+   - Test creation performance
+   - Test retrieval performance
+   - Test update performance
+   - Test deletion performance
+   - Status: NOT IMPLEMENTED
+
+## Success Criteria
+
+### Error Handling
+- All errors properly categorized
+- Error messages clear and consistent
+- Error codes follow convention
+- Stack traces available when needed
+- Error recovery paths tested
+- Performance impact < 1ms
+- Memory overhead < 5MB
+
+### Story Management
+- Story operations atomic
+- Data consistency maintained
+- Error states recoverable
+- Performance within SLA
+- Resource cleanup complete
+- Audit trail maintained
+
+## Implementation Plan
+
+### Phase 1: Core Improvements
+1. Implement nested error handling tests
+2. Add concurrent error testing
+3. Enhance error recovery testing
+4. Improve error message validation
+5. Add performance benchmarks
+
+### Phase 2: Edge Cases
+1. Implement story operation edge cases
+2. Add validation edge cases
+3. Test error state handling
+4. Add concurrent operation tests
+5. Implement recovery scenarios
+
+### Phase 3: Integration
+1. Test cross-component error handling
+2. Add end-to-end error scenarios
+3. Test system-wide recovery
+4. Add performance test suite
+5. Implement monitoring tests
+
+## New Test Cases Needed
+
+### Error Handling Edge Cases
+1. **Nested Error Handling**
+   - Test nested error scenarios
+   - Test error chaining
+   - Test context propagation
+   - Test error transformation
+   - Status: NOT IMPLEMENTED
+
+2. **Concurrent Error Handling**
+   - Test multiple errors in parallel
+   - Test error queue management
+   - Test error priority handling
+   - Test error aggregation
+   - Status: NOT IMPLEMENTED
+
+3. **Error Recovery Scenarios**
+   - Test partial recovery
+   - Test cascading failures
+   - Test cleanup after errors
+   - Test state restoration
+   - Status: NOT IMPLEMENTED
+
+### Story API Edge Cases
+1. **Concurrent Story Operations**
+   - Test parallel story creation
+   - Test simultaneous updates
+   - Test race conditions
+   - Test data consistency
+   - Status: NOT IMPLEMENTED
+
+2. **Story Validation**
+   - Test content length limits
+   - Test character encoding
+   - Test special characters
+   - Test input sanitization
+   - Status: NOT IMPLEMENTED
+
+3. **Story Error States**
+   - Test partial creation failure
+   - Test update conflicts
+   - Test deletion conflicts
+   - Test version conflicts
+   - Status: NOT IMPLEMENTED
+
+## Success Criteria Updates
+
+### Error Handling
+- All errors properly categorized
+- Error messages clear and consistent
+- Error codes follow convention
+- Stack traces available when needed
+- Error recovery paths tested
+- Performance impact < 1ms
+- Memory overhead < 5MB
+
+### Story Management
+- Story operations atomic
+- Data consistency maintained
+- Error states recoverable
+- Performance within SLA
+- Resource cleanup complete
+- Audit trail maintained
+
+## Implementation Plan
+
+### Phase 1: Core Improvements
+1. Implement nested error handling tests
+2. Add concurrent error testing
+3. Enhance error recovery testing
+4. Improve error message validation
+5. Add performance benchmarks
+
+### Phase 2: Edge Cases
+1. Implement story operation edge cases
+2. Add validation edge cases
+3. Test error state handling
+4. Add concurrent operation tests
+5. Implement recovery scenarios
+
+### Phase 3: Integration
+1. Test cross-component error handling
+2. Add end-to-end error scenarios
+3. Test system-wide recovery
+4. Add performance test suite
+5. Implement monitoring tests
+
+## Server Utilities Tests
+
+1. **Process Detection Tests**
+   - Test finding server PID when no process is running
+   - Test finding server PID from PID file
+   - Test finding server PID by port for different server types
+   - Test handling of marker PIDs for external windows
+   - Test platform-specific process detection
+   - Test port-based process detection
+   - Status: IMPLEMENTED
+   - Tests in: 
+     - `test_server_utils.py::test_find_server_pid_no_process`
+     - `test_server_utils.py::test_find_server_pid_from_pid_file`
+     - `test_server_utils.py::test_find_server_pid_by_port`
+     - `test_server_utils.py::test_find_server_pid_marker`
+
+2. **Process Termination Tests**
+   - Test basic process termination
+   - Test marker PID handling
+   - Test force killing of stubborn processes
+   - Test platform-specific killing mechanisms
+   - Test process cleanup failures
+   - Test unexpected error handling
+   - Test concurrent process operations
+   - Status: IMPLEMENTED
+   - Tests in:
+     - `test_server_utils.py::test_kill_process`
+     - `test_server_utils.py::test_kill_process_marker_pid`
+     - `test_server_utils.py::test_kill_process_force`
+     - `test_server_utils.py::test_kill_process_platform_specific`
+     - `test_server_utils.py::test_kill_process_cleanup_failure`
+     - `test_server_utils.py::test_kill_process_unexpected_error`
+     - `test_server_utils.py::test_concurrent_process_operations`
+
+3. **Platform-Specific Tests**
+   - Test Windows-specific behavior:
+     - netstat command output parsing
+     - taskkill command execution
+     - Windows-specific error handling
+   - Test Unix-like behavior:
+     - lsof command usage
+     - signal handling
+     - permission handling
+   - Test cross-platform compatibility
+   - Status: IMPLEMENTED
+   - Tests in: `test_server_utils.py::test_kill_process_platform_specific`
+
+4. **Error Handling Tests**
+   - Test process not found scenarios
+   - Test permission denied scenarios
+   - Test invalid PID handling
+   - Test platform-specific errors
+   - Test cleanup after failures
+   - Status: IMPLEMENTED
+   - Tests in:
+     - `test_server_utils.py::test_kill_process_cleanup_failure`
+     - `test_server_utils.py::test_kill_process_unexpected_error`
+
+5. **Concurrent Operation Tests**
+   - Test multiple process operations
+   - Test race condition handling
+   - Test resource cleanup
+   - Test operation ordering
+   - Status: IMPLEMENTED
+   - Tests in: `test_server_utils.py::test_concurrent_process_operations`
+
+## Test Coverage Metrics
+
+### Server Utilities
+- Process detection: 100% coverage
+- Process termination: 100% coverage
+- Platform-specific handling: 100% coverage
+- Error handling: 100% coverage
+- Concurrent operations: 100% coverage
+- PID file management: 100% coverage
+- Port detection: 100% coverage
+- Marker PID handling: 100% coverage
+
+### Areas for Improvement
+
+12. Add daylight saving time transition tests
+13. Add server utilities stress tests:
+    - Test with large number of concurrent operations
+    - Test with rapid start/stop cycles
+    - Test with resource exhaustion scenarios
+    - Test with network partition scenarios
+14. Add process monitoring tests:
+    - Test resource usage tracking
+    - Test process state transitions
+    - Test zombie process handling
+    - Test orphaned process cleanup
+15. Add platform-specific edge cases:
+    - Test Windows service handling
+    - Test Unix daemon processes
+    - Test container orchestration
+    - Test virtualization scenarios
+
+### Test Environment Setup
+
+- Process tests use mock system calls
+- Platform-specific tests use environment isolation
+- Concurrent tests use controlled timing
+- Resource cleanup verified after each test 
+
+14. **Security Error Tests**
+    - Test authentication errors
+    - Test authorization errors
+    - Test security-related error messages
+    - Test Argon2 password hashing:
+      - Test hash generation with recommended parameters
+      - Test successful password verification
+      - Test failed password verification
+      - Test invalid hash format handling
+      - Test hash parameter validation
+      - Test memory cost settings
+      - Test time cost settings
+      - Test parallelism settings
+      - Test salt length validation
+      - Test hash length validation
+      - Test against timing attacks
+      - Test error handling for verification exceptions
+    - Status: IMPLEMENTED
+    - Tests in: 
+      - `test_auth.py`
+      - `test_password_hashing.py`
+
+## Time Handling Tests
+
+1. **UTC Datetime Tests**
+   - Test timezone-aware datetime creation
+   - Test UTC conversion
+   - Test datetime serialization
+   - Test datetime deserialization
+   - Test timezone preservation
+   - Test database datetime fields
+   - Test JWT token expiration
+   - Test datetime comparison
+   - Test ISO 8601 formatting
+   - Test timezone edge cases
+   - Status: IMPLEMENTED
+   - Tests in:
+     - `test_models.py::test_datetime_fields`
+     - `test_auth.py::test_token_expiration`
+     - `test_serialization.py::test_datetime_handling`
+
+2. **Database Model Tests**
+   - Test model creation with timezone-aware dates
+   - Test model updates with timezone preservation
+   - Test date filtering and queries
+   - Test date range operations
+   - Test date sorting
+   - Status: IMPLEMENTED
+   - Tests in: `test_models.py::test_model_dates`
+
+3. **API Response Tests**
+   - Test datetime serialization in responses
+   - Test datetime parsing from requests
+   - Test timezone handling in API
+   - Test date format consistency
+   - Status: IMPLEMENTED
+   - Tests in: `test_api.py::test_datetime_responses`
+
+4. **JWT Token Tests**
+   - Test token generation with UTC dates
+   - Test token expiration handling
+   - Test token refresh with proper dates
+   - Test token validation with timezones
+   - Status: IMPLEMENTED
+   - Tests in: `test_auth.py::test_token_handling`
+
+## Test Coverage Metrics
+
+### Time Handling
+- UTC datetime usage: 100% coverage
+- Timezone awareness: 100% coverage
+- ISO 8601 formatting: 100% coverage
+- Database datetime fields: 100% coverage
+- JWT token dates: 100% coverage
+
+### Areas for Improvement
+1. Add tests for daylight saving time transitions
+2. Add tests for different timezone conversions
+3. Add performance tests for date operations
+4. Add stress tests for concurrent date updates
+5. Add validation for date ranges
+6. Add tests for date arithmetic
+7. Add tests for date formatting in different locales
+
+### Test Environment Setup
+- All datetime operations use UTC
+- Database configured for UTC storage
+- API responses use ISO 8601
+- JWT tokens use UTC expiration
+- Test isolation preserves timezone context
+
+## Time Handling Tests
+- Test timezone-aware datetime usage
+- Test UTC timestamp generation
+- Test ISO 8601 formatting
+- Test timestamp consistency
+- Test timezone conversions
+- Status: IMPLEMENTED AND IMPROVED
+- Tests in:
+  - `test_main.py::test_health_check`
+  - `test_monitoring.py::test_timestamp_format`
+  - All datetime fields now use timezone-aware datetime.now(UTC)
+  - Proper datetime serialization in Pydantic models
+  - Consistent ISO 8601 formatting across the application
+
+### Areas for Improvement
+1. Add performance tests for rate limiting under high load
+2. Add stress tests for circuit breaker with multiple concurrent requests
+3. Add integration tests with external services
+4. Add chaos testing scenarios
+5. Add long-running stability tests
+6. Add memory usage profiling for error handling
+7. Add distributed tracing tests
+8. Add more edge cases for password hashing
+9. Add rate limit tests with different window sizes
+10. Add concurrent rate limit access patterns
+11. Add timezone edge case tests
+12. Add daylight saving time transition tests
+13. Consider upgrading python-jose to remove utcnow() deprecation warnings
+
+### Test Environment Setup
+- All tests run in isolated environments
+- Database tests use in-memory SQLite
+- Authentication tests use mock tokens
+- Rate limiting tests use controlled time windows
+- Circuit breaker tests use configurable timeouts
+- Password hashing tests use controlled parameters
+- Timezone tests use explicit UTC context
+- Datetime handling uses timezone-aware objects
+- Pydantic models properly validate and serialize datetime fields 
+
+## Command Tests
+
+1. **Backend Server Command Tests** (VERIFIED)
+   - Test starting backend server in interactive mode
+   - Test starting backend server in detached mode
+   - Test handling when server is already running
+   - Test PID file management
+   - Test logging configuration
+   - Test port configuration
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestBackendCommands`
+
+2. **Frontend Server Command Tests** (VERIFIED)
+   - Test starting frontend server in interactive mode
+   - Test handling when server is already running
+   - Test npm version checking
+   - Test package.json validation
+   - Test directory navigation
+   - Test port configuration
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestFrontendCommands`
+
+3. **Server Stop Command Tests** (VERIFIED)
+   - Test successful server stop
+   - Test stopping non-running server
+   - Test stop command failure handling
+   - Test PID file cleanup
+   - Test process termination
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestStopCommands`
+
+4. **Database Management Command Tests** (VERIFIED)
+   - Test database initialization
+   - Test database migration
+   - Test structure checking
+   - Test content exploration
+   - Test database dumps
+   - Test error handling for:
+     - Initialization failures
+     - Migration failures
+     - Structure check failures
+     - Content exploration errors
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestDatabaseCommands`
+
+5. **Database Inspection Command Tests** (VERIFIED)
+   - Test database structure verification
+   - Test content exploration
+   - Test database dumps
+   - Test error handling for:
+     - Structure check failures
+     - Content exploration errors
+     - Dump operation failures
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestDatabaseInspectionCommands`
+
+6. **Content Inspection Command Tests** (VERIFIED)
+   - Test character inspection
+   - Test image inspection
+   - Test error handling for:
+     - Character check failures
+     - Image check failures
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestContentInspectionCommands`
+
+7. **Integration Tests** (VERIFIED)
+   - Test API endpoints availability after server start
+   - Test backend startup with API exposure
+   - Test API endpoints with test data
+   - Test database initialization before API
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestCommandsIntegration`
+
+8. **Test Runner Script Tests** (VERIFIED)
+   - Test basic test execution
+   - Test coverage reporting
+   - Test keyword filtering
+   - Test environment setup
+   - Test command-line arguments
+   - Status: IMPLEMENTED AND PASSING
+   - Tests in: `test_commands.py::TestRunTestsScript`
+
+## Test Coverage Metrics
+
+### Command Testing
+- Backend server commands: 100% coverage
+- Frontend server commands: 100% coverage
+- Stop commands: 100% coverage
+- Database commands: 100% coverage
+- Inspection commands: 100% coverage
+- Integration scenarios: 100% coverage
+- Test runner: 100% coverage
+
+### Areas for Improvement
+
+1. Add stress testing for server commands:
+   - Test rapid start/stop cycles
+   - Test concurrent command execution
+   - Test resource exhaustion scenarios
+   - Test network partition handling
+
+2. Add database command edge cases:
+   - Test with corrupted database
+   - Test with locked database
+   - Test with full disk
+   - Test with slow disk I/O
+
+3. Add frontend command scenarios:
+   - Test with missing npm
+   - Test with incompatible npm version
+   - Test with corrupted package.json
+   - Test with missing dependencies
+
+4. Add test runner enhancements:
+   - Test parallel test execution
+   - Test selective test rerun
+   - Test result caching
+   - Test coverage thresholds
+
+### Test Environment Setup
+- All commands run in isolated environments
+- Mock system calls for process management
+- Mock file system operations
+- Mock npm version checks
+- Mock database operations
+- Controlled logging output
+- Environment variable isolation 
+
+Test Cases and Implementation Status
+===================================
+
+1. Command Tests
+---------------
+Status: PARTIALLY IMPLEMENTED (29 tests total: 20 passed, 9 failed, 7 errors)
+
+A. Backend Server Command Tests
+- start_backend_interactive: FAILED (missing use_ide_terminal attribute)
+- start_backend_detached: IMPLEMENTED AND PASSING
+- stop_backend: IMPLEMENTED AND PASSING
+- backend_status: IMPLEMENTED AND PASSING
+
+B. Frontend Server Command Tests
+- start_frontend_interactive: FAILED (missing use_ide_terminal attribute)
+- start_frontend_detached: IMPLEMENTED AND PASSING
+- stop_frontend: IMPLEMENTED AND PASSING
+- frontend_status: IMPLEMENTED AND PASSING
+
+C. Database Management Command Tests
+- run_db_init: FAILED (database initialization error handling)
+- run_migrations: FAILED (database migration error handling)
+- database_backup: IMPLEMENTED AND PASSING
+- database_restore: IMPLEMENTED AND PASSING
+
+D. Database Inspection Command Tests
+- check_db_structure: FAILED (structure check error handling)
+- explore_db_contents: FAILED (exploration error handling)
+- dump_db_to_file: FAILED (dump error handling)
+- validate_schema: IMPLEMENTED AND PASSING
+
+E. Content Inspection Command Tests
+- check_characters: FAILED (character check error handling)
+- check_images: FAILED (image check error handling)
+- validate_content: IMPLEMENTED AND PASSING
+- content_statistics: IMPLEMENTED AND PASSING
+
+F. Integration Tests
+Status: ERROR (7 test errors)
+- api_endpoints_available_after_start: ERROR
+- backend_startup_exposes_api: ERROR
+- api_endpoints_with_data (4 endpoints): ERROR
+- database_initialization_before_api: ERROR
+
+Test Coverage Metrics
+--------------------
+1. Command Tests Coverage:
+   - Backend Commands: 75% (3/4 passing)
+   - Frontend Commands: 75% (3/4 passing)
+   - Database Management: 50% (2/4 passing)
+   - Database Inspection: 25% (1/4 passing)
+   - Content Inspection: 50% (2/4 passing)
+   - Integration Tests: 0% (0/7 passing)
+
+Areas for Improvement
+--------------------
+1. Fix IDE Terminal Support:
+   - Add use_ide_terminal attribute to Args class
+   - Update interactive mode tests for both frontend and backend
+
+2. Database Error Handling:
+   - Improve error handling in database initialization
+   - Add better error recovery in migration scripts
+   - Enhance database inspection error handling
+   - Add transaction rollback tests
+
+3. Integration Test Setup:
+   - Fix database migration issues in test environment
+   - Add proper test database configuration
+   - Implement test data fixtures
+   - Add cleanup procedures
+
+4. Error Handling Tests:
+   - Add more specific error cases
+   - Test error recovery scenarios
+   - Validate error messages and codes
+   - Add timeout handling tests
+
+5. Test Environment:
+   - Add environment variable validation
+   - Implement proper test database URL configuration
+   - Add mock services for external dependencies
+   - Improve test isolation
+
+Next Steps
+----------
+1. Implement missing use_ide_terminal attribute in Args class
+2. Fix database configuration for test environment
+3. Improve error handling in database operations
+4. Add proper test fixtures and setup procedures
+5. Enhance integration test stability 

@@ -5,119 +5,111 @@ import pytest
 import json
 from fastapi.testclient import TestClient
 from app.database.models import User
+from app.core.security import get_password_hash
+from tests.conftest import generate_unique_username
 
 
 # Use the test_app fixture from conftest.py
 @pytest.fixture
 def client(test_app):
+    """Create a test client for the FastAPI application."""
     return TestClient(test_app)
 
 
 def test_root_endpoint(client):
-    """Test the root API endpoint."""
+    """Test if the root endpoint returns the correct welcome message."""
     response = client.get("/")
     assert response.status_code == 200
     assert response.json() == {
         "message": "Welcome to the MVP Child Book Generator API",
-        "docs": "/docs",
+        "docs": "/docs"
     }
 
 
 @pytest.fixture
-def test_user(test_db_session):
-    """Create a test user for API tests."""
-    user = User(
-        username="testuser",
-        email="test@example.com",
-        password_hash="$2b$12$1234567890123456789012.1234567890123456789012345678901234",
-        first_name="Test",
-        last_name="User"
-    )
-    test_db_session.add(user)
-    test_db_session.commit()
-    test_db_session.refresh(user)
-    return user
-
-
-@pytest.fixture
-def auth_headers(monkeypatch):
-    """
-    Mock authentication for API tests.
-    
-    This fixture mocks the get_current_user dependency to return a test user
-    without requiring actual authentication.
-    """
-    # This is a simple mock that would be replaced with actual JWT handling in a real test
-    return {"Authorization": "Bearer test_token"}
+def create_test_user(test_db_session):
+    """Create a test user with the given credentials."""
+    def _create_test_user(username, email, password):
+        user = User(
+            username=username,
+            email=email,
+            password_hash=get_password_hash(password),
+            first_name="Test",
+            last_name="User"
+        )
+        test_db_session.add(user)
+        test_db_session.commit()
+        test_db_session.refresh(user)
+        return user
+    return _create_test_user
 
 
 def test_auth_endpoints_exist(client):
     """Test that auth endpoints exist."""
     # Login route should exist
     response = client.post("/api/auth/login")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 422  # Should be a 422 error (Unprocessable Entity)
     
     # Register route should exist
     response = client.post("/api/auth/register")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 422  # Should be a 422 error (Unprocessable Entity)
     
     # Me route should exist
     response = client.get("/api/auth/me")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
 
 
 def test_character_endpoints_exist(client):
     """Test that character endpoints exist."""
     # List characters route should exist
     response = client.get("/api/characters/")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Create character route should exist
     response = client.post("/api/characters/")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Get character route should exist
     response = client.get("/api/characters/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Update character route should exist
     response = client.put("/api/characters/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Delete character route should exist
     response = client.delete("/api/characters/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
 
 
 def test_story_endpoints_exist(client):
     """Test that story endpoints exist."""
     # List stories route should exist
     response = client.get("/api/stories/")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Create story route should exist
     response = client.post("/api/stories/")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Get story route should exist
     response = client.get("/api/stories/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Update story route should exist
     response = client.put("/api/stories/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
     
     # Delete story route should exist
     response = client.delete("/api/stories/1")
-    assert response.status_code != 404  # Should not be a 404 error (Not Found)
+    assert response.status_code == 401  # Should be a 401 error (Unauthorized)
 
 
 def test_image_endpoints_exist(client):
-    """Test that image endpoints exist."""
-    # Get image by ID route should exist
+    """Test that image endpoints exist and require authentication."""
     response = client.get("/api/images/1")
-    assert response.status_code == 404  # Should be a 404 error (Not Found)
-    assert "Image not found" in response.text  # But with a specific error message
+    assert response.status_code == 401  # Should be unauthorized
+    assert "Unauthorized" in response.json()["message"]
 
 
 def test_cors_headers(client):
@@ -142,40 +134,56 @@ class TestAuthAPI:
     def setup_user(self, test_db_session, create_test_user):
         """Create a test user for authentication tests."""
         self.test_user = create_test_user(
-            username="testuser",
-            email="test@example.com",
+            username=generate_unique_username(),
+            email="auth_test@example.com",
             password="password123"
         )
     
     def test_register_user(self, client):
         """Test user registration."""
-        # Register a new user
         response = client.post(
             "/api/auth/register",
             json={
-                "username": "newuser",
-                "email": "new@example.com",
-                "password": "newpassword123",
-                "first_name": "New",
+                "email": "test@example.com",
+                "password": "testpassword123",
+                "username": generate_unique_username(),
+                "first_name": "Test",
                 "last_name": "User"
             }
         )
-        assert response.status_code in [200, 201]
+        assert response.status_code == 201
+        assert "access_token" in response.json()
+        assert response.json()["token_type"] == "bearer"
     
     def test_login_user(self, client):
         """Test user login."""
-        # Login with credentials
+        # First register a user
+        username = generate_unique_username()
+        register_response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "test@example.com",
+                "password": "testpassword123",
+                "username": username,
+                "first_name": "Test",
+                "last_name": "User"
+            }
+        )
+        assert register_response.status_code == 201
+        
+        # Then login with the registered user
         response = client.post(
             "/api/auth/login",
             data={
-                "username": "testuser",
-                "password": "password123"
+                "username": "test@example.com",
+                "password": "testpassword123"
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         assert response.status_code == 200
         assert "access_token" in response.json()
-
+        assert response.json()["token_type"] == "bearer"
+    
     def test_invalid_login(self, client):
         """Test login with invalid credentials."""
         # Login with wrong credentials
@@ -187,189 +195,309 @@ class TestAuthAPI:
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
-        assert response.status_code in [401, 403]  # Unauthorized or Forbidden
+        assert response.status_code == 401  # Should be a 401 error (Unauthorized)
+        assert "Incorrect email or password" in response.json()["detail"]
 
 
 class TestCharacterAPI:
-    def test_create_character(self, client, auth_headers):
+    def test_create_character(self, client, auth_headers, mock_openai_client, mock_httpx_client):
         """Test creating a character."""
         # Create a new character
         response = client.post(
             "/api/characters/",
             json={
                 "name": "New Character",
-                "traits": {"age": 10, "personality": "friendly"},
+                "traits": ["age: 10", "personality: friendly"],
                 "image_prompt": "A friendly character"
             },
             headers=auth_headers
         )
         assert response.status_code in [200, 201]
+        assert "id" in response.json()
+        assert response.json()["name"] == "New Character"
     
-    def test_get_character(self, client, auth_headers):
+    def test_get_character(self, client, auth_headers, mock_openai_client, mock_httpx_client):
         """Test getting a character."""
-        # Get a character
+        # First create a character
+        create_response = client.post(
+            "/api/characters/",
+            json={
+                "name": "Test Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
+            },
+            headers=auth_headers
+        )
+        assert create_response.status_code in [200, 201]
+        character_id = create_response.json()["id"]
+        
+        # Then get the character
         response = client.get(
-            "/api/characters/1",
+            f"/api/characters/{character_id}",
             headers=auth_headers
         )
         assert response.status_code == 200
+        assert response.json()["name"] == "Test Character"
     
-    def test_update_character(self, client, auth_headers):
+    def test_update_character(self, client, auth_headers, mock_openai_client, mock_httpx_client):
         """Test updating a character."""
-        # Update a character
+        # First create a character
+        create_response = client.post(
+            "/api/characters/",
+            json={
+                "name": "Test Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
+            },
+            headers=auth_headers
+        )
+        assert create_response.status_code in [200, 201]
+        character_id = create_response.json()["id"]
+        
+        # Then update the character
         response = client.put(
-            "/api/characters/1",
+            f"/api/characters/{character_id}",
             json={
                 "name": "Updated Character",
-                "traits": {"age": 10, "personality": "brave"},
+                "traits": ["age: 11", "personality: brave"],
+                "image_prompt": "A brave character"
             },
             headers=auth_headers
         )
         assert response.status_code == 200
+        assert response.json()["id"] == character_id
+        assert response.json()["name"] == "Updated Character"
     
     @pytest.mark.parametrize("traits", [
-        {"age": 10, "personality": "friendly"},
-        {"age": "eight", "hair_color": "brown", "personality": "shy"},
-        {},  # Empty traits
+        ["age: 8", "personality: shy"],
+        ["age: 10", "personality: outgoing"],
+        ["age: 12", "personality: creative"]
     ])
-    def test_character_with_different_traits(self, client, auth_headers, traits):
-        """Test creating characters with different traits schemas."""
+    def test_character_with_different_traits(self, client, auth_headers, mock_openai_client, mock_httpx_client, traits):
+        """Test creating characters with different traits."""
         response = client.post(
             "/api/characters/",
             json={
-                "name": "Trait Test Character",
+                "name": "Character with Traits",
                 "traits": traits,
+                "image_prompt": "A character with specific traits"
             },
             headers=auth_headers
         )
         assert response.status_code in [200, 201]
+        assert "id" in response.json()
+        assert response.json()["traits"] == traits
 
 
 class TestStoryAPI:
-    def test_create_story(self, client, auth_headers):
+    def test_create_story(self, client, auth_headers, mock_openai_client, mock_httpx_client):
         """Test creating a story."""
-        # Create a new story
-        response = client.post(
-            "/api/stories/",
+        # First create a character
+        character_response = client.post(
+            "/api/characters/",
             json={
-                "character_id": 1,
-                "title": "New Story",
-                "age_group": "3-5",
-                "moral_lesson": "kindness",
-                "setting": "fantasy",
-                "theme": "adventure"
+                "name": "Story Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
             },
             headers=auth_headers
         )
-        assert response.status_code in [200, 201]
+        assert character_response.status_code in [200, 201]
+        character_id = character_response.json()["id"]
+        
+        # Then create a story
+        response = client.post(
+            "/api/stories/",
+            json={
+                "title": "Test Story",
+                "character_id": character_id,
+                "age_group": "3-5",
+                "story_tone": "whimsical",
+                "moral_lesson": "kindness",
+                "page_count": 3
+            },
+            headers=auth_headers
+        )
+        assert response.status_code == 201
+        assert response.json()["title"] == "Test Story"
     
     @pytest.mark.parametrize("age_group,expected_status", [
         ("3-5", 201),
         ("6-8", 201),
         ("9-12", 201),
-        ("invalid-age", 422),  # Invalid age_group should be rejected
+        ("invalid-age", 422)
     ])
-    def test_create_story_with_different_age_groups(self, client, auth_headers, age_group, expected_status):
+    def test_create_story_with_different_age_groups(self, client, auth_headers, mock_openai_client, mock_httpx_client, age_group, expected_status):
         """Test creating stories with different age groups."""
-        if age_group == "invalid-age":
-            endpoint = "/api/stories/invalid-age"
-        else:
-            endpoint = "/api/stories/"
-        
-        response = client.post(
-            endpoint,
+        # First create a character
+        char_response = client.post(
+            "/api/characters/",
             json={
-                "character_id": 1,
-                "title": f"Story for {age_group}",
+                "name": "Story Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
+            },
+            headers=auth_headers
+        )
+        assert char_response.status_code in [200, 201]
+        character_id = char_response.json()["id"]
+        
+        # Then create a story
+        response = client.post(
+            "/api/stories/",
+            json={
+                "title": "Test Story",
+                "character_id": character_id,
                 "age_group": age_group,
-                "moral_lesson": "kindness",
+                "story_tone": "adventurous",
+                "moral_lesson": "courage",
+                "page_count": 5
             },
             headers=auth_headers
         )
         assert response.status_code == expected_status
-
-    def test_generate_story(self, client, auth_headers):
+        if expected_status == 201:
+            assert "id" in response.json()
+            assert response.json()["age_group"] == age_group
+    
+    def test_generate_story(self, client, auth_headers, mock_openai_client, mock_httpx_client):
         """Test generating a story."""
-        response = client.post(
-            "/api/stories/generate",
-            json={
-                "character_id": 1,
-                "age_group": "3-5",
-                "moral_lesson": "kindness",
-                "setting": "fantasy",
-                "theme": "adventure"
-            },
-            headers=auth_headers
-        )
-        assert response.status_code in [200, 202]  # 202 if async generation
-
-
-class TestImageAPI:
-    def test_generate_image(self, client, auth_headers):
-        """Test generating an image."""
-        response = client.post(
-            "/api/images/generate",
-            json={
-                "prompt": "A beautiful fantasy landscape",
-                "story_id": 1,
-                "character_id": 1
-            },
-            headers=auth_headers
-        )
-        assert response.status_code in [200, 202]  # 202 if async generation
-
-
-class TestEndToEndWorkflow:
-    def test_character_to_story_workflow(self, client, auth_headers):
-        """Test the entire workflow from character creation to story generation with images."""
-        # Step 1: Create a character
+        # First create a character
         character_response = client.post(
             "/api/characters/",
             json={
-                "name": "Workflow Test Character",
-                "traits": {"age": 8, "personality": "brave", "appearance": "red hair"},
-                "image_prompt": "A brave child with red hair"
+                "name": "Story Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
             },
             headers=auth_headers
         )
         assert character_response.status_code in [200, 201]
-        character_data = character_response.json()
-        character_id = character_data.get("id", 1)  # Use default 1 if id not in response
+        character_id = character_response.json()["id"]
         
-        # Step 2: Generate a story
-        story_response = client.post(
-            "/api/stories/",
+        # Then generate a story
+        response = client.post(
+            "/api/stories/generate",
             json={
+                "title": "Generated Story",
                 "character_id": character_id,
-                "title": "The Brave Adventure",
-                "age_group": "6-8",
-                "moral_lesson": "courage",
-                "setting": "forest",
-                "theme": "adventure"
+                "age_group": "3-5",
+                "story_tone": "whimsical",
+                "moral_lesson": "kindness",
+                "page_count": 3
             },
             headers=auth_headers
         )
-        assert story_response.status_code in [200, 201]
-        story_data = story_response.json()
-        story_id = story_data.get("id", 1)  # Use default 1 if id not in response
-        
-        # Step 3: Generate an image for the story
-        image_response = client.post(
+        assert response.status_code == 201
+        assert "content" in response.json()
+
+
+class TestImageAPI:
+    def test_generate_image(self, client, auth_headers, mock_openai_client, mock_httpx_client):
+        """Test generating an image."""
+        # Mock OpenAI response
+        mock_openai_client.images.generate.return_value = {
+            "data": [{"url": "https://example.com/test.png"}]
+        }
+
+        response = client.post(
             "/api/images/generate",
             json={
-                "prompt": "A brave child with red hair in a forest",
-                "story_id": story_id,
-                "character_id": character_id
+                "prompt": "A beautiful fantasy landscape",
+                "style": "whimsical"
             },
             headers=auth_headers
         )
-        assert image_response.status_code in [200, 201, 202]
-        image_data = image_response.json()
-        assert image_data.get("status") == "generating"
-        
-        # Step 4: Get the final story
-        final_story_response = client.get(
-            f"/api/stories/{story_id}",
+        assert response.status_code == 201
+        assert "url" in response.json()
+        assert response.json()["url"] == "https://example.com/test.png"
+
+    def test_enhance_prompt(self, client, auth_headers, mock_openai_client):
+        """Test enhancing an image prompt."""
+        response = client.post(
+            "/api/images/enhance-prompt",
+            json={
+                "name": "Test Character",
+                "traits": ["friendly", "brave"],
+                "base_prompt": "A character standing"
+            },
             headers=auth_headers
         )
-        assert final_story_response.status_code == 200 
+        assert response.status_code == 200
+        assert "enhanced_prompt" in response.json()
+
+    def test_unauthorized_image_access(self, client):
+        """Test that unauthorized access to images is properly handled."""
+        response = client.get("/api/images/1")
+        assert response.status_code == 401
+        assert "Unauthorized" in response.json()["message"]
+        assert response.json()["error_code"] == "AUTH-001"
+
+    def test_image_generation_with_style(self, client, auth_headers, mock_openai_client, mock_httpx_client):
+        """Test generating an image with a specific style."""
+        mock_openai_client.images.generate.return_value = {
+            "data": [{"url": "https://example.com/styled.png"}]
+        }
+
+        response = client.post(
+            "/api/images/generate",
+            json={
+                "prompt": "A magical forest",
+                "style": "whimsical"
+            },
+            headers=auth_headers
+        )
+        assert response.status_code == 201
+        assert "url" in response.json()
+        assert response.json()["url"] == "https://example.com/styled.png"
+        
+        # Verify OpenAI client was called with style
+        mock_openai_client.images.generate.assert_called_once()
+        call_args = mock_openai_client.images.generate.call_args[1]
+        assert "whimsical" in call_args.get("prompt", "").lower()
+
+
+class TestEndToEndWorkflow:
+    def test_character_to_story_workflow(self, client, auth_headers, mock_openai_client, mock_httpx_client):
+        """Test the complete workflow from character creation to story generation."""
+        # 1. Create a character
+        character_response = client.post(
+            "/api/characters/",
+            json={
+                "name": "Workflow Character",
+                "traits": ["age: 10", "personality: friendly"],
+                "image_prompt": "A friendly character"
+            },
+            headers=auth_headers
+        )
+        assert character_response.status_code in [200, 201]
+        character_id = character_response.json()["id"]
+        
+        # 2. Generate a story
+        generate_response = client.post(
+            "/api/stories/generate",
+            json={
+                "title": "Workflow Story",
+                "character_id": character_id,
+                "age_group": "3-5",
+                "story_tone": "whimsical",
+                "moral_lesson": "kindness",
+                "page_count": 3
+            },
+            headers=auth_headers
+        )
+        assert generate_response.status_code == 201
+        assert "content" in generate_response.json()
+        
+        # 3. Generate images for each page
+        for page in generate_response.json()["content"]["pages"]:
+            image_response = client.post(
+                "/api/images/generate",
+                json={
+                    "prompt": page["visual_description"],
+                    "style": "whimsical"
+                },
+                headers=auth_headers
+            )
+            assert image_response.status_code == 201
+            assert "url" in image_response.json() 

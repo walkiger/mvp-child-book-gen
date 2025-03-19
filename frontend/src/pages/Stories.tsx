@@ -4,7 +4,8 @@ import { Link as RouterLink } from 'react-router-dom';
 import axios from '../lib/axios';
 import LoadingState from '../components/LoadingState';
 import ErrorDisplay from '../components/ErrorDisplay';
-import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling';
+import { APIError } from '../types/errors';
+import { formatApiError, isRetryableError, retryOperation } from '../lib/errorHandling';
 
 interface Story {
   id: number;
@@ -17,7 +18,7 @@ interface Story {
 const Stories: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
+  const [error, setError] = useState<APIError | null>(null);
 
   const fetchStories = async () => {
     try {
@@ -32,8 +33,9 @@ const Stories: React.FC = () => {
       setStories(response.data);
       setError(null);
     } catch (err) {
-      setError(formatApiError(err));
-      console.error('Error fetching stories:', err);
+      const apiError = formatApiError(err);
+      setError(apiError);
+      console.error('Error fetching stories:', apiError);
     } finally {
       setLoading(false);
     }
@@ -52,7 +54,7 @@ const Stories: React.FC = () => {
       <Container maxWidth="md" sx={{ mt: 4 }}>
         <ErrorDisplay 
           error={error} 
-          onRetry={fetchStories}
+          onRetry={isRetryableError(error) ? fetchStories : undefined}
           fullPage
         />
       </Container>

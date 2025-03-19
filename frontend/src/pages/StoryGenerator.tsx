@@ -23,7 +23,8 @@ import useAuth from '../hooks/useAuth'
 import axios from '../lib/axios'
 import LoadingState from '../components/LoadingState'
 import ErrorDisplay from '../components/ErrorDisplay'
-import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling'
+import { APIError, formatApiError, isRetryableError } from '../lib/errorHandling'
+import AuthenticatedImage from '../components/AuthenticatedImage'
 
 interface Character {
   id: number
@@ -33,12 +34,11 @@ interface Character {
 }
 
 interface StoryParams {
-  title: string
-  ageGroup: string
+  character_id: string
+  age_group: string
   tone: string
   moral: string
-  pageCount: number
-  character_id: number
+  page_count: number
 }
 
 const StoryGenerator = () => {
@@ -47,141 +47,65 @@ const StoryGenerator = () => {
   const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [loadingCharacters, setLoadingCharacters] = useState(true)
-  const [error, setError] = useState<ApiError | null>(null)
+  const [error, setError] = useState<APIError | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [storyParams, setStoryParams] = useState<StoryParams>({
-    title: '',
-    ageGroup: '3-6',
-    tone: 'whimsical',
-    moral: 'kindness',
-    pageCount: 5,
-    character_id: 0,
+    character_id: '',
+    age_group: '5-8',
+    tone: 'fun',
+    moral: '',
+    page_count: 10
   })
 
-  // Parse URL query parameters
   useEffect(() => {
-    if (isAuthenticated) {
-      const searchParams = new URLSearchParams(location.search);
-      const characterId = searchParams.get('character');
-      
-      if (characterId) {
-        // Pre-select character if ID is in the URL
-        const id = parseInt(characterId);
-        if (!isNaN(id)) {
-          setStoryParams(prev => ({
-            ...prev,
-            character_id: id
-          }));
-        }
-      }
-    }
-  }, [isAuthenticated, location.search]);
-
-  // Fetch characters when component mounts
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchCharacters()
-    }
-  }, [isAuthenticated])
-
-  // Set selected character when characters are loaded or character_id changes
-  useEffect(() => {
-    if (characters.length > 0 && storyParams.character_id) {
-      const character = characters.find(c => c.id === storyParams.character_id) || null;
-      setSelectedCharacter(character);
-    }
-  }, [characters, storyParams.character_id]);
+    fetchCharacters()
+  }, [])
 
   const fetchCharacters = async () => {
-    setLoadingCharacters(true)
     try {
-      const response = await retryOperation(async () => {
-        const res = await axios.get('/api/characters/')
-        if (!res.data) {
-          throw new Error('No data received from server')
-        }
-        return res
-      })
+      const response = await axios.get('/api/characters')
       setCharacters(response.data)
-      setError(null)
+      
+      // If character ID was passed in location state, select it
+      if (location.state?.characterId) {
+        const character = response.data.find(
+          (c: Character) => c.id === location.state.characterId
+        )
+        if (character) {
+          setSelectedCharacter(character)
+          setStoryParams(prev => ({
+            ...prev,
+            character_id: character.id.toString()
+          }))
+        }
+      }
     } catch (err) {
-      const apiError = formatApiError(err)
-      setError(apiError)
-      console.error('Error fetching characters:', err)
+      setError(formatApiError(err))
     } finally {
       setLoadingCharacters(false)
     }
   }
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent
-  ) => {
-    const { name, value } = e.target
-    setStoryParams((prev) => ({ ...prev, [name as string]: value }))
+  const handleCharacterSelect = (event: SelectChangeEvent) => {
+    const characterId = event.target.value
+    const character = characters.find(c => c.id.toString() === characterId)
+    setSelectedCharacter(character || null)
+    setStoryParams(prev => ({
+      ...prev,
+      character_id: characterId
+    }))
   }
 
-  const handleCharacterSelect = (e: SelectChangeEvent) => {
-    const characterId = parseInt(e.target.value)
-    const character = characters.find(c => c.id === characterId) || null
-    setSelectedCharacter(character)
-    setStoryParams((prev) => ({ ...prev, character_id: characterId }))
-  }
-
-  const handleSliderChange = (_event: Event, newValue: number | number[]) => {
-    setStoryParams((prev) => ({ ...prev, pageCount: newValue as number }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedCharacter) {
-      setError({
-        message: 'Please select a character',
-        code: 'VALIDATION_ERROR',
-        retry: false,
-        details: 'A character is required to generate a story.'
-      })
-      return
-    }
-
-    if (!storyParams.title.trim()) {
-      setError({
-        message: 'Please enter a story title',
-        code: 'VALIDATION_ERROR',
-        retry: false,
-        details: 'A title is required for your story.'
-      })
-      return
-    }
-    
+  const handleSubmit = async () => {
     setLoading(true)
     setError(null)
 
     try {
-      await retryOperation(async () => {
-        // Format parameters for API
-        const apiParams = {
-          title: storyParams.title.trim(),
-          age_group: storyParams.ageGroup,
-          story_tone: storyParams.tone,
-          moral_lesson: storyParams.moral,
-          page_count: storyParams.pageCount,
-          character_id: storyParams.character_id
-        }
-        
-        // Call story generation API
-        const response = await axios.post('/api/stories/', apiParams)
-        if (!response.data || !response.data.id) {
-          throw new Error('Invalid response from server')
-        }
-        
-        // Redirect to the newly created story
-        navigate(`/stories/${response.data.id}`)
-      })
+      const response = await axios.post('/api/stories/generate', storyParams)
+      navigate(`/stories/${response.data.id}`)
     } catch (err) {
-      const apiError = formatApiError(err)
-      setError(apiError)
-      console.error('Error generating story:', err)
+      setError(formatApiError(err))
     } finally {
       setLoading(false)
     }
@@ -200,7 +124,7 @@ const StoryGenerator = () => {
   }
 
   if (loadingCharacters) {
-    return <LoadingState variant="spinner" text="Loading characters..." />
+    return <LoadingState />
   }
 
   return (
@@ -228,10 +152,14 @@ const StoryGenerator = () => {
           </Typography>
           
           {error && (
-            <ErrorDisplay 
-              error={error} 
-              onRetry={error.retry ? fetchCharacters : undefined}
-            />
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error.message}
+              {error.details && (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  {typeof error.details === 'string' ? error.details : JSON.stringify(error.details)}
+                </Typography>
+              )}
+            </Alert>
           )}
           
           <Box sx={{ width: '100%', mb: 4 }}>
@@ -249,10 +177,10 @@ const StoryGenerator = () => {
                   <Select
                     labelId="character-select-label"
                     id="character"
-                    value={storyParams.character_id.toString()}
+                    value={storyParams.character_id}
                     label="Character"
                     onChange={handleCharacterSelect}
-                    error={Boolean(error?.code === 'VALIDATION_ERROR' && !selectedCharacter)}
+                    error={Boolean(error?.error_code === 'VALIDATION_ERROR' && !selectedCharacter)}
                   >
                     {characters.map((character) => (
                       <MenuItem key={character.id} value={character.id.toString()}>
@@ -298,77 +226,61 @@ const StoryGenerator = () => {
               2. Story Details
             </Typography>
             
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="age-group-label">Age Group</InputLabel>
+              <Select
+                labelId="age-group-label"
+                id="age_group"
+                value={storyParams.age_group}
+                label="Age Group"
+                onChange={(e) => setStoryParams(prev => ({ ...prev, age_group: e.target.value }))}
+                error={Boolean(error?.error_code === 'VALIDATION_ERROR' && !storyParams.age_group)}
+              >
+                <MenuItem value="3-5">3-5 years</MenuItem>
+                <MenuItem value="5-8">5-8 years</MenuItem>
+                <MenuItem value="8-12">8-12 years</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="tone-label">Story Tone</InputLabel>
+              <Select
+                labelId="tone-label"
+                id="tone"
+                value={storyParams.tone}
+                label="Story Tone"
+                onChange={(e) => setStoryParams(prev => ({ ...prev, tone: e.target.value }))}
+                error={Boolean(error?.error_code === 'VALIDATION_ERROR' && !storyParams.tone)}
+              >
+                <MenuItem value="fun">Fun & Playful</MenuItem>
+                <MenuItem value="educational">Educational</MenuItem>
+                <MenuItem value="adventurous">Adventurous</MenuItem>
+                <MenuItem value="mysterious">Mysterious</MenuItem>
+              </Select>
+            </FormControl>
+            
             <TextField
               fullWidth
               margin="normal"
-              label="Story Title"
-              name="title"
-              value={storyParams.title}
-              onChange={handleChange}
-              error={Boolean(error?.code === 'VALIDATION_ERROR' && !storyParams.title.trim())}
-              helperText={error?.code === 'VALIDATION_ERROR' && !storyParams.title.trim() ? 'Title is required' : ''}
-              disabled={loading}
+              label="Moral of the Story"
+              value={storyParams.moral}
+              onChange={(e) => setStoryParams(prev => ({ ...prev, moral: e.target.value }))}
+              error={Boolean(error?.error_code === 'VALIDATION_ERROR' && !storyParams.moral)}
+              helperText="What lesson should the story teach?"
             />
             
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Age Group</InputLabel>
-              <Select
-                name="ageGroup"
-                value={storyParams.ageGroup}
-                label="Age Group"
-                onChange={handleChange}
-                disabled={loading}
-              >
-                <MenuItem value="3-6">3-6 years</MenuItem>
-                <MenuItem value="7-9">7-9 years</MenuItem>
-                <MenuItem value="10-12">10-12 years</MenuItem>
-              </Select>
-            </FormControl>
-            
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Story Tone</InputLabel>
-              <Select
-                name="tone"
-                value={storyParams.tone}
-                label="Story Tone"
-                onChange={handleChange}
-                disabled={loading}
-              >
-                <MenuItem value="whimsical">Whimsical</MenuItem>
-                <MenuItem value="educational">Educational</MenuItem>
-                <MenuItem value="adventurous">Adventurous</MenuItem>
-                <MenuItem value="funny">Funny</MenuItem>
-              </Select>
-            </FormControl>
-            
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Moral Lesson</InputLabel>
-              <Select
-                name="moral"
-                value={storyParams.moral}
-                label="Moral Lesson"
-                onChange={handleChange}
-                disabled={loading}
-              >
-                <MenuItem value="kindness">Kindness</MenuItem>
-                <MenuItem value="honesty">Honesty</MenuItem>
-                <MenuItem value="perseverance">Perseverance</MenuItem>
-                <MenuItem value="friendship">Friendship</MenuItem>
-                <MenuItem value="responsibility">Responsibility</MenuItem>
-              </Select>
-            </FormControl>
-            
             <Box sx={{ mt: 3 }}>
-              <Typography gutterBottom>Number of Pages: {storyParams.pageCount}</Typography>
+              <Typography gutterBottom>
+                Number of Pages: {storyParams.page_count}
+              </Typography>
               <Slider
-                value={storyParams.pageCount}
-                onChange={handleSliderChange}
+                value={storyParams.page_count}
+                onChange={(_, value) => setStoryParams(prev => ({ ...prev, page_count: value as number }))}
                 min={5}
                 max={20}
                 step={1}
                 marks
                 valueLabelDisplay="auto"
-                disabled={loading}
               />
             </Box>
             

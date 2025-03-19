@@ -29,6 +29,7 @@ import axios from '../lib/axios'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import AuthenticatedImage from './AuthenticatedImage'
 
 interface CharacterFormData {
   name: string
@@ -51,7 +52,8 @@ interface RateLimitInfo {
 }
 
 interface CharacterFormProps {
-  mode: 'create' | 'edit'
+  mode: 'create' | 'edit' | 'update'
+  id?: number
 }
 
 const CharacterForm: React.FC<CharacterFormProps> = ({ mode }) => {
@@ -144,10 +146,22 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ mode }) => {
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    
+    if (name === 'name') {
+      // Allow letters and spaces, ensuring each word contains only letters
+      const words = value.split(' ')
+      const sanitizedWords = words.map(word => word.replace(/[^a-zA-Z]/g, ''))
+      const sanitizedValue = sanitizedWords.join(' ')
+      setFormData(prev => ({
+        ...prev,
+        [name]: sanitizedValue
+      }))
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }))
+    }
   }
 
   const handleDalleVersionChange = (index: number, value: string) => {
@@ -246,11 +260,19 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ mode }) => {
         setRateLimitInfo(response.data.rate_limit_info)
       }
     } catch (err) {
-      if (err instanceof AxiosError && err.response?.status === 429) {
-        setRateLimitError(true)
-      } else if (err instanceof AxiosError && err.response?.status === 403) {
-        // Regeneration limit reached
-        setError('Each image can only be regenerated once.')
+      if (err instanceof AxiosError) {
+        if (err.response?.status === 429) {
+          setRateLimitError(true)
+        } else if (err.response?.status === 403) {
+          // Regeneration limit reached
+          setError('Each image can only be regenerated once.')
+        } else if (err.response?.status === 401) {
+          // Handle authentication error
+          setError('Please log in to continue')
+          navigate('/login')
+        } else {
+          setError(err.response?.data?.detail || 'Failed to generate image')
+        }
       } else {
         setError('Failed to generate image')
       }
@@ -280,70 +302,91 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ mode }) => {
       }
       
       navigate('/characters')
-    } catch (error) {
-      console.error('Error selecting image:', error)
-      setError('Failed to select image')
+    } catch (err) {
+      if (err instanceof AxiosError && err.response?.status === 401) {
+        setError('Please log in to continue')
+        navigate('/login')
+      } else {
+        console.error('Error selecting image:', err)
+        setError('Failed to select image')
+      }
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setRateLimitError(false)
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setRateLimitError(false);
 
     try {
       // Check for duplicate name first when creating
       if (mode === 'create') {
         try {
-          const checkResponse = await axios.get(`/api/characters/check-name?name=${encodeURIComponent(formData.name)}`);
-          if (checkResponse.data.exists) {
-            setError('A character with this name already exists');
-            setLoading(false);
+          const encodedName = encodeURIComponent(formData.name.trim());
+          const checkResponse = await axios.get(`/api/characters/check-name?name=${encodedName}`);
+          
+          // If we get here, the name is valid and doesn't exist
+          if (checkResponse.data.valid && !checkResponse.data.exists) {
+            // Continue with character creation
+            const response = await axios.post('/api/characters', formData);
+            navigate(`/characters/${response.data.id}`);
             return;
           }
+          
+          // This shouldn't happen as errors should be caught in the catch block
+          setError('Invalid character name');
+          setLoading(false);
+          return;
+          
         } catch (err) {
-          // If the endpoint doesn't exist, continue with creation
-          console.warn('Name check endpoint not available:', err);
+          if (err instanceof AxiosError) {
+            const errorData = err.response?.data?.detail || err.response?.data;
+            
+            if (err.response?.status === 422) {
+              // Validation error
+              setError(errorData?.error || 'Invalid character name format');
+              setLoading(false);
+              return;
+            } else if (err.response?.status === 409) {
+              // Duplicate name
+              setError(errorData?.error || 'Character name already exists');
+              setLoading(false);
+              return;
+            } else if (err.response?.status === 401) {
+              // Authentication error
+              setError('Please log in to continue');
+              navigate('/login');
+              return;
+            }
+          }
+          
+          console.error('Error checking character name:', err);
+          setError('Failed to validate character name');
+          setLoading(false);
+          return;
         }
-        
-        // First step: Create character with prompt
-        const response = await axios.post('/api/characters/', {
-          name: formData.name,
-          traits: formData.traits,
-        });
-        
-        setCharacterId(response.data.id);
-        setFormData(prev => ({
-          ...prev,
-          imagePrompt: response.data.image_prompt
-        }));
+      }
 
-        // Initialize edited prompt
-        setEditedPrompt(response.data.image_prompt);
-        
-        // Move to prompt edit step
-        setStep('prompt-edit');
-        setShowImageDialog(true);
-      } else if (id) {
-        await axios.put(`/api/characters/${id}`, formData);
+      // If we're updating, just send the update request
+      if (mode === 'update' && characterId) {
+        await axios.put(`/api/characters/${characterId}`, formData);
         navigate('/characters');
+        return;
       }
+      
     } catch (err) {
+      console.error('Error submitting character:', err);
       if (err instanceof AxiosError) {
-        if (err.response?.status === 429) {
-          setRateLimitError(true);
-        } else if (err.response?.status === 409) {
-          setError('A character with this name already exists');
-        } else {
-          setError(mode === 'create' ? 'Failed to create character' : 'Failed to update character');
-        }
+        const errorData = err.response?.data?.detail || err.response?.data;
+        setError(errorData?.error || 'Failed to save character');
+      } else {
+        setError('Failed to save character');
       }
-      console.error('Error saving character:', err);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const handleEditPrompt = () => {
     setIsEditingPrompt(true)
@@ -426,12 +469,10 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ mode }) => {
               >
                 {isGenerated ? (
                   <>
-                    <CardMedia
-                      component="img"
-                      height="220"
-                      image={imageUrl}
-                      alt={`Generated image ${index}`}
-                      sx={{ objectFit: 'contain' }}
+                    <AuthenticatedImage
+                      src={imageUrl}
+                      alt={`Generated image ${index + 1}`}
+                      style={{ height: '220px', width: '100%', objectFit: 'contain' }}
                     />
                     <Box sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                       <Box>

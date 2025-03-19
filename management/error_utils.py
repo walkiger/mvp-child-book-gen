@@ -7,69 +7,91 @@ import traceback
 import logging
 import os
 from functools import wraps
+from typing import Optional, Dict, Any
+
+from app.core.errors.base import BaseError, ErrorContext, ErrorSeverity
+from app.core.errors.management import (
+    ManagementError, ManagementDatabaseError as DatabaseError,
+    ServerError, ProcessError, EnvironmentError, MonitoringError,
+    with_management_error_handling
+)
+from app.core.logging import setup_logger
 
 # Ensure logs directory exists
 os.makedirs("logs", exist_ok=True)
 
 # Setup basic logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("logs/management.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+logger = setup_logger(
+    name="management.error_utils",
+    level="INFO",
+    log_file="logs/management.log"
 )
 
-logger = logging.getLogger("management")
+def create_error_context(
+    operation: str,
+    source: str = "management",
+    additional_info: Optional[Dict[str, Any]] = None
+) -> ErrorContext:
+    """Create an error context for management operations
+    
+    Args:
+        operation: The operation being performed
+        source: Source of the error (default: management)
+        additional_info: Additional context information
+        
+    Returns:
+        ErrorContext object
+    """
+    context = ErrorContext(
+        operation=operation,
+        source=source,
+        timestamp=None  # Will be set automatically
+    )
+    
+    if additional_info:
+        context.update(additional_info)
+    
+    return context
 
-class ManagementError(Exception):
-    """Base exception class for management package errors"""
-    def __init__(self, message, details=None):
-        self.message = message
-        self.details = details
-        super().__init__(message)
-
-class DatabaseError(ManagementError):
-    """Exception raised for database-related errors"""
-    pass
-
-class ServerError(ManagementError):
-    """Exception raised for server-related errors"""
-    pass
-
-class ConfigError(ManagementError):
-    """Exception raised for configuration-related errors"""
-    pass
-
-def log_error(e, context=""):
+def log_error(error: BaseError, context: Optional[str] = None):
     """Log an error with optional context information
     
     Args:
-        e: The exception to log
-        context: Optional context information
+        error: The BaseError instance to log
+        context: Optional context string
     """
-    error_type = type(e).__name__
-    error_message = str(e)
+    error_type = type(error).__name__
+    error_message = str(error)
+    error_code = getattr(error, 'error_code', 'UNKNOWN')
+    severity = getattr(error, 'severity', ErrorSeverity.ERROR)
     
+    log_msg = f"{error_type}[{error_code}] - {error_message}"
     if context:
-        logger.error(f"{context}: {error_type} - {error_message}")
-    else:
-        logger.error(f"{error_type} - {error_message}")
+        log_msg = f"{context}: {log_msg}"
     
-    # Log traceback at debug level
+    if severity >= ErrorSeverity.ERROR:
+        logger.error(log_msg)
+    elif severity >= ErrorSeverity.WARNING:
+        logger.warning(log_msg)
+    else:
+        logger.info(log_msg)
+    
+    # Log details at debug level
+    if error.details:
+        logger.debug(f"Error details: {error.details}")
     logger.debug(traceback.format_exc())
     
-    # Print to console
-    if context:
-        print(f"Error in {context}: {error_message}", file=sys.stderr)
-    else:
-        print(f"Error: {error_message}", file=sys.stderr)
+    # Print to console with suggestions if available
+    print(f"Error: {error_message}", file=sys.stderr)
+    if hasattr(error, 'suggestions') and error.suggestions:
+        print("\nSuggestions:", file=sys.stderr)
+        for suggestion in error.suggestions:
+            print(f"- {suggestion}", file=sys.stderr)
     
     sys.stderr.flush()
 
-def handle_errors(func=None, context=None, exit_on_error=False):
-    """Decorator to standardize error handling for functions
+def handle_errors(func=None, *, context: Optional[str] = None, exit_on_error: bool = False):
+    """Decorator to standardize error handling for management functions
     
     Args:
         func: The function to decorate
@@ -84,15 +106,25 @@ def handle_errors(func=None, context=None, exit_on_error=False):
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except ManagementError as e:
-                # Handle our custom exceptions
+            except BaseError as e:
+                # Handle our custom error hierarchy
                 log_error(e, context or func.__name__)
                 if exit_on_error:
                     sys.exit(1)
                 return False
             except Exception as e:
-                # Handle unexpected exceptions
-                log_error(e, context or func.__name__)
+                # Convert unexpected exceptions to ManagementError
+                error_ctx = create_error_context(
+                    operation=func.__name__,
+                    additional_info={'original_error': str(e)}
+                )
+                management_error = ManagementError(
+                    message=f"Unexpected error in management operation: {str(e)}",
+                    error_code="MGT-UNEXPECTED-001",
+                    context=error_ctx,
+                    details={'traceback': traceback.format_exc()}
+                )
+                log_error(management_error, context or func.__name__)
                 if exit_on_error:
                     sys.exit(1)
                 return False
@@ -118,6 +150,18 @@ def safe_db_operation(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            # Convert to DatabaseError and re-raise
-            raise DatabaseError(f"Database operation failed: {str(e)}", details=str(e))
+            error_ctx = create_error_context(
+                operation=func.__name__,
+                source='database',
+                additional_info={'original_error': str(e)}
+            )
+            raise DatabaseError(
+                message=f"Database operation failed: {str(e)}",
+                error_code="MGT-DB-FAIL-001",
+                context=error_ctx,
+                details={
+                    'operation': func.__name__,
+                    'traceback': traceback.format_exc()
+                }
+            )
     return wrapper 

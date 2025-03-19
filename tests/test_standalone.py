@@ -10,12 +10,13 @@ import logging
 from enum import Enum
 
 # Import error handling utilities
-from utils.error_handling import (
-    BaseError, ServerError, DatabaseError, ConfigError, 
-    ResourceError, InputError, ImageError, ErrorSeverity,
-    handle_error, setup_logger
-)
-from management.errors import ProcessError
+from app.core.errors.base import BaseError, ErrorContext, ErrorSeverity
+from app.core.errors.database import DatabaseError
+from app.core.errors.api import InternalServerError as ServerError
+from app.core.errors.validation import ValidationError as InputError
+from app.core.errors.image import ImageError
+from app.core.errors.management import ProcessError
+from app.core.logging import setup_logger
 
 
 def test_error_classes():
@@ -101,8 +102,12 @@ def test_handle_error_function():
         error = BaseError("Test message", severity=severity)
         try:
             handle_error(error, logger)
-            print(f"✓ Handled {severity.name} without exit")
+        except BaseError as e:
+            # Verify error was logged correctly
+            assert str(e) == str(error)
+            print(f"✓ Error was re-raised as expected for {severity.name}")
         except SystemExit:
+            # This is expected for CRITICAL severity
             print(f"✓ SystemExit raised for {severity.name} as expected")
     
     print("\n✓ handle_error function test completed")

@@ -4,41 +4,46 @@
 Authentication API endpoints.
 """
 
-from datetime import timedelta
+from datetime import timedelta, datetime, UTC
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from uuid import uuid4
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
+from fastapi.responses import JSONResponse
+import logging
 
 from app.core.auth import (
     get_current_user,
     create_access_token,
     verify_password,
-    get_password_hash
+    get_password_hash,
+    TokenError
 )
+from app.core.security import verify_token
 from app.database.models import User
 from app.database.session import get_db
 from app.schemas.auth import Token, UserCreate, UserResponse
-from app.config import settings
-from app.core.auth_errors import (
+from app.schemas.user import TokenData, LoginRequest
+from app.config import get_settings
+from app.core.errors.auth import (
     AuthenticationError,
     RegistrationError,
-    TokenError,
-    PermissionError,
-    UserNotFoundError,
-    UserValidationError
+    AuthorizationError
 )
-from app.core.error_handling import setup_logger
+from app.core.errors.user import UserValidationError, UserNotFoundError
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.logging import setup_logger
 
 # Set up logger
-logger = setup_logger("auth", "logs/auth.log")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-@router.post("/register", response_model=Token)
+@router.post("/register", response_model=Token, status_code=201)
 async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
     """
     Register a new user.
@@ -52,7 +57,13 @@ async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
             logger.warning(f"User already exists with email: {user.email}")
             raise RegistrationError(
                 message="Email already registered",
-                details=f"A user with email {user.email} already exists"
+                context=ErrorContext(
+                    source="auth.register",
+                    severity=ErrorSeverity.WARNING,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={"email": user.email}
+                )
             )
         
         logger.info("Creating new user...")
@@ -73,19 +84,29 @@ async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
             logger.info(f"User created successfully with ID: {db_user.id}")
             
             # Create access token
-            access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            settings = get_settings()
+            access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
             access_token = create_access_token(
                 data={"sub": user.email}, expires_delta=access_token_expires
             )
             
-            return {"access_token": access_token, "token_type": "bearer"}
+            return {"access_token": access_token, "token_type": "Bearer"}
             
         except Exception as e:
             logger.error(f"Error creating user: {str(e)}")
             db.rollback()
             raise RegistrationError(
                 message="Failed to create user",
-                details=str(e)
+                context=ErrorContext(
+                    source="auth.register",
+                    severity=ErrorSeverity.ERROR,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={
+                        "email": user.email,
+                        "error": str(e)
+                    }
+                )
             )
             
     except RegistrationError:
@@ -94,8 +115,14 @@ async def register(user: UserCreate, db: Session = Depends(get_db)) -> Any:
     except Exception as e:
         logger.error(f"Unexpected error during registration: {str(e)}")
         raise RegistrationError(
-            message="Failed to register user",
-            details=str(e)
+            message="Registration failed",
+            context=ErrorContext(
+                source="auth.register",
+                severity=ErrorSeverity.ERROR,
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={"error": str(e)}
+            )
         )
 
 
@@ -109,41 +136,58 @@ async def login(
     """
     try:
         logger.info(f"Login attempt for user: {form_data.username}")
-        
+
         # Find user by email
         user = db.query(User).filter(User.email == form_data.username).first()
         if not user:
             logger.warning(f"User not found: {form_data.username}")
             raise AuthenticationError(
                 message="Incorrect email or password",
-                details="User not found"
+                context=ErrorContext(
+                    source="auth.login",
+                    severity=ErrorSeverity.WARNING,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={"email": form_data.username}
+                )
             )
-        
+
         # Verify password
         if not verify_password(form_data.password, user.password_hash):
             logger.warning(f"Invalid password for user: {form_data.username}")
             raise AuthenticationError(
                 message="Incorrect email or password",
-                details="Invalid password"
+                context=ErrorContext(
+                    source="auth.login",
+                    severity=ErrorSeverity.WARNING,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={"email": form_data.username}
+                )
             )
-        
+
         # Create access token
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": user.email}, expires_delta=access_token_expires
-        )
-        
+        access_token = create_access_token({"sub": user.email})
         logger.info(f"Login successful for user: {form_data.username}")
-        return {"access_token": access_token, "token_type": "bearer"}
-        
+
+        return {
+            "access_token": access_token,
+            "token_type": "Bearer"
+        }
+
     except AuthenticationError:
-        # Re-raise known errors
         raise
     except Exception as e:
-        logger.error(f"Unexpected error during login: {str(e)}")
+        logger.error(f"Login error: {str(e)}")
         raise AuthenticationError(
-            message="Login failed",
-            details=str(e)
+            message="An error occurred during login",
+            context=ErrorContext(
+                source="auth.login",
+                severity=ErrorSeverity.ERROR,
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={"error": str(e)}
+            )
         )
 
 
@@ -179,5 +223,140 @@ async def check_user(
         logger.error(f"Error checking user existence: {str(e)}")
         raise UserValidationError(
             message="Failed to check user existence",
-            details=str(e)
+            context=ErrorContext(
+                source="auth.check_user",
+                severity=ErrorSeverity.ERROR,
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={
+                    "email": email,
+                    "error": str(e)
+                }
+            )
+        )
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token(request: Request, db: Session = Depends(get_db)):
+    """
+    Refresh access token.
+    
+    Args:
+        request: The request object containing the Authorization header
+        db: Database session
+        
+    Returns:
+        Token: New access token
+        
+    Raises:
+        TokenError: If token refresh fails
+        UserNotFoundError: If user not found
+    """
+    try:
+        logger.info("Attempting to refresh token")
+        
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise TokenError(
+                message="Missing or invalid Authorization header",
+                error_code="AUTH-TOKEN-HDR-001",
+                context=ErrorContext(
+                    source="auth.refresh_token",
+                    severity=ErrorSeverity.ERROR,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4())
+                )
+            )
+        
+        token = auth_header.split(" ")[1]
+        
+        # Verify and decode the token
+        try:
+            payload = verify_token(token)
+            email = payload.get("sub")
+            if not email:
+                raise TokenError(
+                    message="Invalid token: missing subject claim",
+                    error_code="AUTH-TOKEN-SUB-001",
+                    context=ErrorContext(
+                        source="auth.refresh_token",
+                        severity=ErrorSeverity.ERROR,
+                        timestamp=datetime.now(UTC),
+                        error_id=str(uuid4())
+                    )
+                )
+        except TokenError as e:
+            logger.warning(f"Token verification failed: {str(e)}")
+            raise
+            
+        # Get user from database
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            logger.error(f"User not found during token refresh: {email}")
+            raise UserNotFoundError(
+                message=f"User not found: {email}",
+                error_code="AUTH-USER-NFD-001",
+                context=ErrorContext(
+                    source="auth.refresh_token",
+                    severity=ErrorSeverity.ERROR,
+                    timestamp=datetime.now(UTC),
+                    error_id=str(uuid4()),
+                    additional_data={"email": email}
+                )
+            )
+            
+        # Create new access token
+        settings = get_settings()
+        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        access_token = create_access_token(
+            data={"sub": user.email},
+            expires_delta=access_token_expires
+        )
+        
+        logger.info(f"Successfully refreshed token for user: {email}")
+        
+        return Token(
+            access_token=access_token,
+            token_type="Bearer",
+            user=UserResponse.model_validate(user)
+        )
+        
+    except (TokenError, UserNotFoundError):
+        # Re-raise known errors
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during token refresh: {str(e)}", exc_info=True)
+        raise TokenError(
+            message="Failed to refresh token",
+            error_code="AUTH-TOKEN-ERR-001",
+            context=ErrorContext(
+                source="auth.refresh_token",
+                severity=ErrorSeverity.ERROR,
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={"error": str(e)}
+            )
+        )
+
+
+@router.post("/logout")
+async def logout(current_user: User = Depends(get_current_user)) -> Any:
+    """
+    Logout the current user.
+    """
+    try:
+        logger.info(f"Logout successful for user: {current_user.email}")
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        logger.error(f"Logout error: {str(e)}")
+        raise AuthenticationError(
+            message="An error occurred during logout",
+            context=ErrorContext(
+                source="auth.logout",
+                severity=ErrorSeverity.ERROR,
+                timestamp=datetime.now(UTC),
+                error_id=str(uuid4()),
+                additional_data={"error": str(e)}
+            )
         )

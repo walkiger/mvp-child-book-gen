@@ -4,7 +4,9 @@ import { Link as RouterLink } from 'react-router-dom';
 import axios from '../lib/axios';
 import LoadingState from '../components/LoadingState';
 import ErrorDisplay from '../components/ErrorDisplay';
-import { ApiError, formatApiError, retryOperation } from '../lib/errorHandling';
+import { APIError } from '../lib/errorHandling';
+import { formatApiError, isRetryableError, retryOperation } from '../lib/errorHandling';
+import AuthenticatedImage from '../components/AuthenticatedImage';
 
 interface Character {
   id: number;
@@ -18,7 +20,7 @@ interface Character {
 const Characters: React.FC = () => {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
+  const [error, setError] = useState<APIError | null>(null);
 
   const fetchCharacters = async () => {
     try {
@@ -33,8 +35,9 @@ const Characters: React.FC = () => {
       setCharacters(response.data);
       setError(null);
     } catch (err) {
-      setError(formatApiError(err));
-      console.error('Error fetching characters:', err);
+      const apiError = formatApiError(err);
+      setError(apiError);
+      console.error('Error fetching characters:', apiError);
     } finally {
       setLoading(false);
     }
@@ -53,7 +56,7 @@ const Characters: React.FC = () => {
       <Container maxWidth="md" sx={{ mt: 4 }}>
         <ErrorDisplay 
           error={error} 
-          onRetry={fetchCharacters}
+          onRetry={isRetryableError(error) ? fetchCharacters : undefined}
           fullPage
         />
       </Container>
@@ -87,12 +90,10 @@ const Characters: React.FC = () => {
               <Grid item xs={12} sm={6} md={4} key={character.id}>
                 <Card>
                   {character.image_path && (
-                    <CardMedia
-                      component="img"
-                      height="140"
-                      image={character.image_path}
+                    <AuthenticatedImage
+                      src={character.image_path}
                       alt={character.name}
-                      sx={{ objectFit: 'cover' }}
+                      style={{ height: '200px', width: '100%', objectFit: 'cover' }}
                     />
                   )}
                   <CardContent>

@@ -255,3 +255,13 @@
 - Added the `--unified-mode` option for running servers with color-coded output in a single terminal
 - Added smart port detection to the `status` command to accurately report servers running in separate windows or processes
 - Improved terminal detection and handling for better cross-platform compatibility 
+
+Server Management Improvements:
+- [x] Implement unified terminal mode with color-coded output
+- [x] Add web dashboard for server management
+- [x] Add support for custom ports
+- [x] Add process monitoring and auto-restart
+- [ ] Add support for environment-specific configurations
+- [ ] Add support for production deployment
+- [ ] Add support for Docker containers
+- [ ] Add support for Kubernetes deployment 

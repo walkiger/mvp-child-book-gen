@@ -8,9 +8,24 @@ import json
 import sqlite3
 import datetime
 from pathlib import Path
+from typing import Dict, Any, List, Optional
+import logging
+
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.errors.management import (
+    ManagementDatabaseError as DatabaseError,
+    with_management_error_handling as with_error_handling
+)
+from app.core.logging import setup_logger
 
 from .db_utils import DEFAULT_DB_PATH
-from .errors import with_error_handling, DatabaseError, ErrorSeverity
+
+# Setup logger
+logger = setup_logger(
+    name="management.db_inspection",
+    level="INFO",
+    log_file="logs/management.log"
+)
 
 def print_line(char="-", length=60):
     """Print a separator line with the specified character and length"""

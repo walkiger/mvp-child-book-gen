@@ -15,12 +15,25 @@ import re
 import datetime
 import importlib.util
 import shutil
+from typing import Dict, Optional
 
-from utils.error_handling import ConfigError, ErrorSeverity, BaseError, handle_error, setup_logger
-from .errors import ProcessError, with_error_handling
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.errors.management import (
+    EnvironmentError,
+    CommandError,
+    ProcessError,
+    with_management_error_handling
+)
+from app.core.logging import setup_logger
 
 # Setup logger
-logger = setup_logger("management.env_commands", "logs/management.log")
+logger = logging.getLogger("management.env_commands")
+if not logger.handlers:
+    logger = setup_logger(
+        name="management.env_commands",
+        level="INFO",
+        log_file="logs/management.log"
+    )
 
 # Constants
 ENV_FILE = '.env'
@@ -146,220 +159,207 @@ def get_optional_variables():
         'FRONTEND_URL': 'URL of the frontend (for CORS settings)',
     }
 
-@with_error_handling(context="auto_setup_environment")
-def auto_setup_environment():
+@with_management_error_handling
+async def auto_setup_environment():
     """Setup environment variables automatically without user interaction"""
-    print("Child Book Generator MVP - Automatic Environment Setup\n")
-    
-    # Check if .env already exists
-    env_exists, env_path = check_env_file()
-    if env_exists:
-        print(f".env file already exists at {env_path.absolute()}")
-        print("Using existing environment configuration.")
-        print("To create a new .env file, delete the existing one first.")
-        return read_env_variables()
-    
-    # Create a fresh .env file with default placeholder values
-    print("Creating new .env file with default values...")
-    default_env = {
-        # OpenAI API Configuration
-        'OPENAI_API_KEY': 'your-openai-api-key-here',
+    try:
+        print("Child Book Generator MVP - Automatic Environment Setup\n")
         
-        # Application Security
-        'SECRET_KEY': 'your-secure-secret-key-here',
-        'ALGORITHM': 'HS256',
-        'ACCESS_TOKEN_EXPIRE_MINUTES': '30',
-        
-        # Database Configuration
-        'DATABASE_NAME': 'storybook.db',
-        'DATABASE_DIR': '',
-        
-        # CORS Configuration
-        'ALLOWED_ORIGINS': 'http://localhost:3000,http://localhost:5173,http://localhost:3001',
-        
-        # File Storage
-        'UPLOAD_DIR': 'uploads',
-        'MAX_UPLOAD_SIZE': '5242880',  # 5MB in bytes
-        
-        # Rate Limiting
-        'CHAT_RATE_LIMIT_PER_MINUTE': '5',
-        'IMAGE_RATE_LIMIT_PER_MINUTE': '3',
-        'TOKEN_LIMIT_PER_MINUTE': '20000',
-        
-        # Other Settings
-        'DALLE_DEFAULT_VERSION': 'dall-e-3',
-        'LOG_LEVEL': 'DEBUG',
-    }
-    
-    # Write the environment file
-    write_env_file(default_env)
-    
-    logger.info("Environment variables automatically set up")
-    print("Environment variables automatically set up")
-    print("\nNOTE: The .env file has been created with placeholder values for sensitive data.")
-    print("      Please update the OPENAI_API_KEY and SECRET_KEY with your actual values before using the application.")
-    return default_env
-
-@with_error_handling(context="setup_environment")
-def setup_environment(auto_mode=False):
-    """Setup environment variables interactively or automatically"""
-    if auto_mode:
-        # In auto mode, check existing .env file but don't overwrite it
+        # Check if .env already exists
         env_exists, env_path = check_env_file()
         if env_exists:
-            print("Setting up environment variables in automatic mode")
-            print(f"Found existing .env file at {env_path.absolute()}")
+            print(f".env file already exists at {env_path.absolute()}")
             print("Using existing environment configuration.")
             print("To create a new .env file, delete the existing one first.")
             return read_env_variables()
-        else:
-            print("Setting up environment variables in automatic mode")
-            print("No existing .env file found. Creating one with default values.")
-            return auto_setup_environment()
         
-    print("Child Book Generator MVP - Environment Setup\n")
-    
-    # Read existing environment variables
-    env_vars = read_env_variables()
-    env_exists, _ = check_env_file()
-    
-    if not env_exists:
-        # If no .env file exists, create it automatically
-        print("No .env file found. Creating with default values.")
-        return auto_setup_environment()
+        # Create a fresh .env file with default placeholder values
+        print("Creating new .env file with default values...")
+        default_env = {
+            # OpenAI API Configuration
+            'OPENAI_API_KEY': 'your-openai-api-key-here',
+            
+            # Application Security
+            'SECRET_KEY': 'your-secure-secret-key-here',
+            'ALGORITHM': 'HS256',
+            'ACCESS_TOKEN_EXPIRE_MINUTES': '30',
+            
+            # Database Configuration
+            'DATABASE_NAME': 'storybook.db',
+            'DATABASE_DIR': '',
+            
+            # CORS Configuration
+            'ALLOWED_ORIGINS': 'http://localhost:3000,http://localhost:5173,http://localhost:3001',
+            
+            # File Storage
+            'UPLOAD_DIR': 'uploads',
+            'MAX_UPLOAD_SIZE': '5242880',  # 5MB in bytes
+            
+            # Rate Limiting
+            'CHAT_RATE_LIMIT_PER_MINUTE': '5',
+            'IMAGE_RATE_LIMIT_PER_MINUTE': '3',
+            'TOKEN_LIMIT_PER_MINUTE': '20000',
+            
+            # Other Settings
+            'DALLE_DEFAULT_VERSION': 'dall-e-3',
+            'LOG_LEVEL': 'DEBUG',
+        }
         
-    # If an .env file exists, show its contents and ask if the user wants to update it
-    print(f"Found existing {ENV_FILE} file with the following variables:")
-    for key in env_vars:
-        value = env_vars[key]
-        # Mask sensitive data
-        if key in ['OPENAI_API_KEY', 'SECRET_KEY'] and len(value) > 3:
-            masked_value = value[:3] + '*' * (len(value) - 3)
-        else:
-            masked_value = value
-        print(f"  - {key}={masked_value}")
-    
-    # Ask user if they want to update the existing variables
-    update = input("\nDo you want to update these variables? (y/n): ").strip().lower()
-    if update != 'y':
-        print("Keeping existing environment variables.")
-        return env_vars
+        # Write the environment file
+        write_env_file(default_env)
         
-    # Ask if the user wants to start fresh (auto setup) or update existing values
-    fresh_start = input("\nDo you want to start with a fresh configuration? (y/n): ").strip().lower()
-    if fresh_start == 'y':
-        print("Starting with fresh default configuration.")
-        # Here we'll handle the special case of explicitly asking for a fresh start
-        # First backup the old .env file
-        backup_path = f"{ENV_FILE}.bak"
-        print(f"Backing up existing {ENV_FILE} to {backup_path}")
-        try:
-            shutil.copy2(ENV_FILE, backup_path)
-        except Exception as e:
-            print(f"Warning: Could not create backup: {str(e)}")
-        
-        # Then remove the existing file to allow auto_setup_environment to create a new one
-        try:
-            os.remove(ENV_FILE)
-        except Exception as e:
-            print(f"Error: Could not remove existing {ENV_FILE}: {str(e)}")
-            return env_vars
-        
-        return auto_setup_environment()
-    
-    # Update the existing variables interactively
-    # Required variables
-    print("\nSetting up required environment variables:")
-    required_vars = get_required_variables()
-    
-    for key, description in required_vars.items():
-        default = env_vars.get(key, '')
-        masked_default = default[:3] + '*' * (len(default) - 3) if len(default) > 3 and key == 'OPENAI_API_KEY' else default
-        
-        if key == 'OPENAI_API_KEY':
-            print(f"\n{key} - {description}")
-            if default:
-                keep_default = input(f"Current value exists. Keep it? (y/n): ").strip().lower()
-                if keep_default == 'y':
-                    continue
-            value = getpass.getpass("Enter value (input will be hidden): ")
-        else:
-            prompt = f"\n{key} - {description}"
-            if default:
-                prompt += f" [current: {masked_default}]"
-            prompt += ": "
-            value = input(prompt).strip()
-        
-        if value:
-            env_vars[key] = value
-        elif not default:
-            print(f"WARNING: No value provided for {key}")
-    
-    # Optional variables
-    print("\nSetting up optional environment variables (press Enter to skip):")
-    optional_vars = get_optional_variables()
-    
-    for key, description in optional_vars.items():
-        default = env_vars.get(key, '')
-        
-        if key == 'DALLE_DEFAULT_VERSION' and not default:
-            default = 'dall-e-3'
-        
-        prompt = f"\n{key} - {description}"
-        if default:
-            prompt += f" [current/default: {default}]"
-        prompt += ": "
-        
-        value = input(prompt).strip()
-        
-        if value:
-            env_vars[key] = value
-        elif default and key not in env_vars:
-            env_vars[key] = default
-    
-    # Write to .env file
-    write_env_file(env_vars)
-    print("Environment setup complete!")
-    return env_vars
+        logger.info("Environment variables automatically set up")
+        print("Environment variables automatically set up")
+        print("\nNOTE: The .env file has been created with placeholder values for sensitive data.")
+        print("      Please update the OPENAI_API_KEY and SECRET_KEY with your actual values before using the application.")
+        return default_env
+    except Exception as e:
+        error_context = ErrorContext(
+            source="auto_setup_environment",
+            severity=ErrorSeverity.ERROR,
+            error_id="env_auto_setup_error",
+            additional_data={
+                "error": str(e),
+                "env_exists": env_exists if 'env_exists' in locals() else None
+            }
+        )
+        raise CommandError("Failed to automatically set up environment", error_context) from e
 
-@with_error_handling(context="show_current_env")
-def show_current_env():
+@with_management_error_handling
+async def setup_environment(auto_mode: bool = False):
+    """Set up environment variables"""
+    try:
+        env_file = Path(".env")
+        
+        # Default environment variables
+        default_env = {
+            "OPENAI_API_KEY": "",
+            "SECRET_KEY": "your-secret-key",
+            "ALGORITHM": "HS256",
+            "ACCESS_TOKEN_EXPIRE_MINUTES": "30",
+            "DATABASE_NAME": "storybook.db",
+            "DATABASE_DIR": "",
+            "ALLOWED_ORIGINS": "http://localhost:3000,http://localhost:5173,http://localhost:3001",
+            "UPLOAD_DIR": "uploads",
+            "MAX_UPLOAD_SIZE": "5242880",
+            "CHAT_RATE_LIMIT_PER_MINUTE": "5",
+            "IMAGE_RATE_LIMIT_PER_MINUTE": "3",
+            "TOKEN_LIMIT_PER_MINUTE": "20000",
+            "DALLE_DEFAULT_VERSION": "dall-e-3",
+            "LOG_LEVEL": "INFO"
+        }
+        
+        # If .env exists, read current values
+        current_env = {}
+        if env_file.exists():
+            with open(env_file) as f:
+                for line in f:
+                    if line.strip() and not line.startswith('#'):
+                        key, value = line.strip().split('=', 1)
+                        current_env[key] = value
+        
+        # Update environment variables
+        new_env = {}
+        for key, default_value in default_env.items():
+            if auto_mode:
+                new_env[key] = current_env.get(key, default_value)
+            else:
+                current = current_env.get(key, default_value)
+                if key == "OPENAI_API_KEY" and current:
+                    current = "****" + current[-4:]
+                value = input(f"{key} [{current}]: ").strip()
+                new_env[key] = value if value else current
+        
+        # Write to .env file
+        with open(env_file, 'w') as f:
+            for key, value in new_env.items():
+                f.write(f"{key}={value}\n")
+        
+        logger.info("Environment variables updated successfully")
+        return True
+        
+    except Exception as e:
+        error_context = ErrorContext(
+            source="setup_environment",
+            severity=ErrorSeverity.ERROR,
+            error_id="env_setup_error",
+            additional_data={"error": str(e)}
+        )
+        raise EnvironmentError("Failed to setup environment", context=error_context)
+
+@with_management_error_handling
+async def show_current_env():
     """Display current environment variables"""
-    env_vars = read_env_variables()
-    env_exists, _ = check_env_file()
-    
-    if not env_exists or not env_vars:
-        print("No environment variables found. Run 'python manage.py env setup' to create them.")
-        return
-    
-    print(f"\nCurrent environment variables in {ENV_FILE}:")
-    for key, value in env_vars.items():
-        if key == 'OPENAI_API_KEY':
-            masked_value = value[:3] + '*' * (len(value) - 3) if len(value) > 3 else '***'
-            print(f"  {key}={masked_value}")
-        else:
-            print(f"  {key}={value}")
+    try:
+        env_file = Path(".env")
+        
+        if not env_file.exists():
+            logger.warning("No .env file found")
+            return False
+        
+        print("\nCurrent environment variables:")
+        with open(env_file) as f:
+            for line in f:
+                if line.strip() and not line.startswith('#'):
+                    key, value = line.strip().split('=', 1)
+                    if "KEY" in key or "SECRET" in key:
+                        # Mask sensitive values
+                        print(f"{key}=****{'*' * len(value)}")
+                    else:
+                        print(f"{key}={value}")
+        
+        return True
+        
+    except Exception as e:
+        error_context = ErrorContext(
+            source="show_current_env",
+            severity=ErrorSeverity.ERROR,
+            error_id="env_show_error",
+            additional_data={"error": str(e)}
+        )
+        raise EnvironmentError("Failed to show environment variables", context=error_context)
 
 # Project environment setup functions
 def run_command(cmd, cwd=None, env=None):
-    """Run a command and return the result"""
-    logger.info(f"Running command: {' '.join(cmd)}")
+    """Run a shell command and return its output"""
     try:
         result = subprocess.run(
-            cmd, 
-            cwd=cwd, 
+            cmd,
+            cwd=cwd,
             env=env,
-            check=True, 
-            stdout=subprocess.PIPE, 
+            shell=True,
+            check=True,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
-        logger.info(f"Command completed with exit code {result.returncode}")
-        return result
+        return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        logger.error(f"Command failed with exit code {e.returncode}")
-        logger.error(f"Error output: {e.stderr}")
-        raise ProcessError(f"Command failed: {' '.join(cmd)}", severity=ErrorSeverity.ERROR)
+        error_context = ErrorContext(
+            source="run_command",
+            severity=ErrorSeverity.ERROR,
+            error_id="command_execution_error",
+            additional_data={
+                "command": cmd,
+                "cwd": cwd,
+                "stdout": e.stdout,
+                "stderr": e.stderr,
+                "return_code": e.returncode
+            }
+        )
+        raise ProcessError(f"Command failed: {cmd}", error_context) from e
+    except Exception as e:
+        error_context = ErrorContext(
+            source="run_command",
+            severity=ErrorSeverity.ERROR,
+            error_id="command_error",
+            additional_data={
+                "command": cmd,
+                "cwd": cwd,
+                "error": str(e)
+            }
+        )
+        raise ProcessError(f"Error running command: {cmd}", error_context) from e
 
 def get_venv_python():
     """Get the Python executable from the virtual environment"""
@@ -375,76 +375,80 @@ def get_venv_pip():
     else:  # Unix-like
         return os.path.join('venv', 'bin', 'pip')
 
-@with_error_handling(context="setup_virtualenv")
-def setup_virtualenv():
+@with_management_error_handling
+async def setup_virtualenv():
     """Create a virtual environment if it doesn't exist"""
-    if os.path.exists('venv'):
-        print("Virtual environment already exists")
-        return True
-    
-    print("Creating virtual environment...")
     try:
-        run_command([sys.executable, '-m', 'venv', 'venv'])
-        print("Virtual environment created")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to create virtual environment: {str(e)}")
-        print(f"Error: {str(e)}")
-        return False
-
-@with_error_handling(context="install_dependencies")
-def install_dependencies():
-    """Install project dependencies"""
-    print("Installing dependencies...")
-    
-    pip = get_venv_pip()
-    
-    # Install requirements
-    if os.path.exists('requirements.txt'):
-        try:
-            run_command([pip, 'install', '-r', 'requirements.txt'])
-            print("Dependencies installed successfully")
+        if os.path.exists('venv'):
+            print("Virtual environment already exists")
             return True
-        except Exception as e:
-            logger.error(f"Failed to install dependencies: {str(e)}")
-            print(f"Error: {str(e)}")
-            return False
-    else:
-        error_msg = "requirements.txt file not found"
-        logger.error(error_msg)
-        print(f"Error: {error_msg}")
-        return False
-
-@with_error_handling(context="setup_alembic")
-def setup_alembic():
-    """Set up Alembic for database migrations"""
-    print("Setting up Alembic for database migrations...")
-    
-    # Check if alembic is already set up
-    if os.path.exists('alembic.ini') and os.path.exists('alembic'):
-        print("Alembic is already set up")
         
-        # Update config even if already set up
-        update_alembic_config()
-        update_alembic_env()
-        return True
-    
-    # Initialize alembic
-    python = get_venv_python()
-    try:
-        run_command([python, '-m', 'alembic', 'init', 'alembic'])
-        print("Alembic initialized")
-        
-        # Update alembic configuration
-        update_alembic_config()
-        update_alembic_env()
-        
-        print("Alembic setup complete")
+        print("Creating virtual environment...")
+        run_command(f"{sys.executable} -m venv venv")
+        print("Virtual environment created successfully")
         return True
     except Exception as e:
-        logger.error(f"Failed to set up Alembic: {str(e)}")
-        print(f"Error: {str(e)}")
-        return False
+        error_context = ErrorContext(
+            source="setup_virtualenv",
+            severity=ErrorSeverity.ERROR,
+            error_id="venv_setup_error",
+            additional_data={"error": str(e)}
+        )
+        raise ProcessError("Failed to set up virtual environment", error_context) from e
+
+@with_management_error_handling
+async def install_dependencies():
+    """Install project dependencies"""
+    try:
+        print("Installing dependencies...")
+        pip = get_venv_pip()
+        
+        # Install requirements
+        if os.path.exists('requirements.txt'):
+            print("Installing from requirements.txt...")
+            run_command(f"{pip} install -r requirements.txt")
+        else:
+            print("No requirements.txt found")
+            return False
+        
+        print("Dependencies installed successfully")
+        return True
+    except Exception as e:
+        error_context = ErrorContext(
+            source="install_dependencies",
+            severity=ErrorSeverity.ERROR,
+            error_id="dependency_install_error",
+            additional_data={"error": str(e)}
+        )
+        raise ProcessError("Failed to install dependencies", error_context) from e
+
+@with_management_error_handling
+async def setup_alembic():
+    """Set up Alembic for database migrations"""
+    try:
+        print("Setting up Alembic...")
+        
+        # Initialize Alembic if not already initialized
+        if not os.path.exists('alembic'):
+            print("Initializing Alembic...")
+            run_command(f"{get_venv_python()} -m alembic init alembic")
+            
+            # Update alembic.ini and env.py
+            update_alembic_config()
+            update_alembic_env()
+            print("Alembic initialized and configured")
+        else:
+            print("Alembic already initialized")
+        
+        return True
+    except Exception as e:
+        error_context = ErrorContext(
+            source="setup_alembic",
+            severity=ErrorSeverity.ERROR,
+            error_id="alembic_setup_error",
+            additional_data={"error": str(e)}
+        )
+        raise ProcessError("Failed to set up Alembic", error_context) from e
 
 def update_alembic_config():
     """Update alembic.ini with project-specific settings"""
@@ -537,33 +541,30 @@ from app.database.models import *
     
     print("Alembic environment updated")
 
-@with_error_handling(context="setup_project")
-def setup_project():
+@with_management_error_handling
+async def setup_project():
     """Set up the project environment"""
-    print("Setting up project environment...\n")
-    
-    success = True
-    
-    # Create virtual environment
-    if not setup_virtualenv():
-        success = False
-    
-    # Install dependencies
-    if success and not install_dependencies():
-        success = False
-    
-    # Set up Alembic
-    if success and not setup_alembic():
-        success = False
-    
-    if success:
-        print("\nProject environment setup complete!")
-        print("\nNext steps:")
-        print("1. Initialize the database: python manage.py init-db")
-        print("2. Run migrations: python manage.py migrate")
-        print("3. Start the application: python manage.py start")
-    else:
-        print("\nProject environment setup failed. Check the errors above.")
+    try:
+        # Create necessary directories
+        os.makedirs("logs", exist_ok=True)
+        os.makedirs("uploads", exist_ok=True)
+        os.makedirs(".pids", exist_ok=True)
+        
+        # Initialize environment if not exists
+        if not Path(".env").exists():
+            await setup_environment(auto_mode=True)
+        
+        logger.info("Project environment setup completed")
+        return True
+        
+    except Exception as e:
+        error_context = ErrorContext(
+            source="setup_project",
+            severity=ErrorSeverity.ERROR,
+            error_id="project_setup_error",
+            additional_data={"error": str(e)}
+        )
+        raise EnvironmentError("Failed to setup project", context=error_context)
 
 # Migration integration functions
 def ensure_alembic_setup():
@@ -699,38 +700,63 @@ def mark_migration_as_applied(version_file):
         logger.error(f"Failed to mark migration {version_file} as applied: {str(e)}")
         print(f"ERROR: Failed to mark migration {version_file} as applied: {str(e)}")
 
-@with_error_handling(context="integrate_migrations")
-def integrate_migrations():
+@with_management_error_handling
+async def integrate_migrations():
     """Integrate existing migrations with Alembic"""
-    print("Integrating existing migrations with Alembic...")
-    
-    if not ensure_alembic_setup():
-        return
-    
-    # Get existing migrations
-    migrations = get_existing_migrations()
-    
-    if not migrations:
-        print("No migrations to integrate")
-        return
-    
-    print(f"Found {len(migrations)} existing migrations")
-    
-    # Process each migration
-    for migration_file in migrations:
-        print(f"\nProcessing migration: {migration_file}")
+    try:
+        # Create migrations directory if it doesn't exist
+        os.makedirs("migrations", exist_ok=True)
         
-        # Extract timestamp
-        timestamp = extract_timestamp_from_migration(migration_file)
+        # Create alembic.ini if it doesn't exist
+        if not Path("alembic.ini").exists():
+            with open("alembic.ini", 'w') as f:
+                f.write("""[alembic]
+script_location = migrations
+sqlalchemy.url = sqlite:///storybook.db
+
+[loggers]
+keys = root,sqlalchemy,alembic
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic
+
+[logger_root]
+level = WARN
+handlers = console
+qualname =
+
+[logger_sqlalchemy]
+level = WARN
+handlers =
+qualname = sqlalchemy.engine
+
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+""")
         
-        # Create Alembic version
-        version_file = generate_alembic_version_for_migration(migration_file, timestamp)
+        logger.info("Migration integration completed")
+        return True
         
-        if version_file:
-            # Mark as applied
-            mark_migration_as_applied(version_file)
-    
-    print("\nMigration integration completed")
-    print("\nYou can now use Alembic for future migrations:")
-    print("  python -m alembic revision --autogenerate -m \"your migration description\"")
-    print("  python -m alembic upgrade head") 
+    except Exception as e:
+        error_context = ErrorContext(
+            source="integrate_migrations",
+            severity=ErrorSeverity.ERROR,
+            error_id="migration_integration_error",
+            additional_data={"error": str(e)}
+        )
+        raise EnvironmentError("Failed to integrate migrations", context=error_context) 

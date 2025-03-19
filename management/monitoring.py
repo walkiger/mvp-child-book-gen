@@ -17,12 +17,29 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
+
+from app.core.errors.base import ErrorContext, ErrorSeverity
+from app.core.errors.management import (
+    ProcessError, ServerError, with_management_error_handling
+)
+from app.core.errors.monitoring import (
+    MonitoringError, MetricsError, LogAnalysisError,
+    RouteHealthError, ServerStatusError
+)
+from app.core.logging import setup_logger
+from .error_utils import create_error_context
+
 from .pid_utils import get_pid, PID_DIR
 from .server_utils import DEFAULT_BACKEND_PORT, DEFAULT_FRONTEND_PORT
-from utils.error_handling import ProcessError, ServerError, setup_logger
 
-# Setup logger
-logger = setup_logger("management.monitoring", "logs/monitoring.log")
+# Setup logger only if it doesn't exist
+logger = logging.getLogger("management.monitoring")
+if not logger.handlers:
+    logger = setup_logger(
+        name="management.monitoring",
+        level="INFO",
+        log_file="logs/monitoring.log"
+    )
 
 # Define monitoring constants
 HEALTH_CHECK_INTERVAL = 60  # seconds
@@ -30,6 +47,241 @@ RESOURCE_CHECK_INTERVAL = 30  # seconds
 LOG_CHECK_INTERVAL = 120  # seconds
 ERROR_THRESHOLD = 5  # Number of errors before alert
 RESPONSE_TIME_THRESHOLD = 2000  # ms
+
+class MonitoringMetrics:
+    """Container for monitoring metrics"""
+    def __init__(self):
+        self.cpu_percent: float = 0.0
+        self.memory_percent: float = 0.0
+        self.disk_usage: Dict[str, float] = {}
+        self.process_info: Dict[str, Any] = {}
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+
+@with_management_error_handling
+async def collect_metrics(pid: Optional[int] = None) -> MonitoringMetrics:
+    """Collect system and process metrics
+    
+    Args:
+        pid: Optional process ID to monitor
+        
+    Returns:
+        MonitoringMetrics object
+        
+    Raises:
+        MonitoringError: If metrics collection fails
+    """
+    try:
+        metrics = MonitoringMetrics()
+        
+        # System metrics
+        metrics.cpu_percent = psutil.cpu_percent(interval=1)
+        metrics.memory_percent = psutil.virtual_memory().percent
+        
+        # Disk metrics
+        disk = psutil.disk_usage('/')
+        metrics.disk_usage = {
+            'total': disk.total / (1024 * 1024 * 1024),  # GB
+            'used': disk.used / (1024 * 1024 * 1024),    # GB
+            'free': disk.free / (1024 * 1024 * 1024),    # GB
+            'percent': disk.percent
+        }
+        
+        # Process metrics if PID provided
+        if pid:
+            try:
+                process = psutil.Process(pid)
+                metrics.process_info = {
+                    'cpu_percent': process.cpu_percent(interval=1),
+                    'memory_percent': process.memory_percent(),
+                    'status': process.status(),
+                    'create_time': datetime.fromtimestamp(process.create_time()).isoformat(),
+                    'threads': len(process.threads())
+                }
+            except psutil.NoSuchProcess:
+                error_ctx = create_error_context(
+                    operation='collect_metrics',
+                    source='monitoring',
+                    additional_info={'pid': pid}
+                )
+                raise MonitoringError(
+                    message=f"Process with PID {pid} not found",
+                    error_code="MON-PROC-NOT-FOUND-001",
+                    context=error_ctx
+                )
+            except psutil.AccessDenied:
+                error_ctx = create_error_context(
+                    operation='collect_metrics',
+                    source='monitoring',
+                    additional_info={'pid': pid}
+                )
+                raise MonitoringError(
+                    message=f"Access denied to process with PID {pid}",
+                    error_code="MON-ACCESS-DENIED-001",
+                    context=error_ctx
+                )
+        
+        return metrics
+        
+    except Exception as e:
+        error_ctx = create_error_context(
+            operation='collect_metrics',
+            source='monitoring',
+            additional_info={'original_error': str(e)}
+        )
+        raise MonitoringError(
+            message=f"Failed to collect monitoring metrics: {str(e)}",
+            error_code="MON-COLLECT-FAIL-001",
+            context=error_ctx
+        )
+
+@with_management_error_handling
+async def generate_monitoring_report(
+    metrics: MonitoringMetrics,
+    report_file: Optional[str] = None
+) -> Dict[str, Any]:
+    """Generate a monitoring report from collected metrics
+    
+    Args:
+        metrics: Collected monitoring metrics
+        report_file: Optional file to save report to
+        
+    Returns:
+        Dictionary containing the report data
+        
+    Raises:
+        MonitoringError: If report generation fails
+    """
+    try:
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'system': {
+                'cpu_percent': metrics.cpu_percent,
+                'memory_percent': metrics.memory_percent,
+                'disk_usage': metrics.disk_usage
+            },
+            'process': metrics.process_info if metrics.process_info else None,
+            'warnings': metrics.warnings,
+            'errors': metrics.errors
+        }
+        
+        if report_file:
+            try:
+                with open(report_file, 'w') as f:
+                    json.dump(report, f, indent=2)
+            except IOError as e:
+                error_ctx = create_error_context(
+                    operation='generate_monitoring_report',
+                    source='monitoring',
+                    additional_info={'report_file': report_file}
+                )
+                raise MonitoringError(
+                    message=f"Failed to save monitoring report: {str(e)}",
+                    error_code="MON-SAVE-FAIL-001",
+                    context=error_ctx
+                )
+        
+        return report
+        
+    except Exception as e:
+        error_ctx = create_error_context(
+            operation='generate_monitoring_report',
+            source='monitoring',
+            additional_info={'original_error': str(e)}
+        )
+        raise MonitoringError(
+            message=f"Failed to generate monitoring report: {str(e)}",
+            error_code="MON-GEN-FAIL-001",
+            context=error_ctx
+        )
+
+@with_management_error_handling
+async def print_monitoring_summary(metrics: MonitoringMetrics):
+    """Print a summary of monitoring metrics to console
+    
+    Args:
+        metrics: Collected monitoring metrics
+    """
+    print("\nMONITORING SUMMARY")
+    print("=" * 50)
+    print(f"CPU Usage: {metrics.cpu_percent}%")
+    print(f"Memory Usage: {metrics.memory_percent}%")
+    print(f"Disk Usage: {metrics.disk_usage['percent']}%")
+    
+    if metrics.process_info:
+        print("\nProcess Information:")
+        print(f"  CPU Usage: {metrics.process_info['cpu_percent']}%")
+        print(f"  Memory Usage: {metrics.process_info['memory_percent']}%")
+        print(f"  Status: {metrics.process_info['status']}")
+        print(f"  Threads: {metrics.process_info['threads']}")
+    
+    if metrics.warnings:
+        print("\nWarnings:")
+        for warning in metrics.warnings:
+            print(f"  - {warning}")
+    
+    if metrics.errors:
+        print("\nErrors:")
+        for error in metrics.errors:
+            print(f"  - {error}")
+
+@with_management_error_handling
+async def continuous_monitoring(
+    pid: Optional[int] = None,
+    interval: int = 60,
+    report_dir: str = "monitoring_reports"
+):
+    """Continuously monitor system and process metrics
+    
+    Args:
+        pid: Optional process ID to monitor
+        interval: Monitoring interval in seconds
+        report_dir: Directory to save monitoring reports
+    """
+    try:
+        # Ensure report directory exists
+        os.makedirs(report_dir, exist_ok=True)
+        
+        print(f"Starting continuous monitoring (Ctrl+C to stop)")
+        print(f"Monitoring interval: {interval} seconds")
+        print(f"Reports directory: {report_dir}")
+        
+        while True:
+            try:
+                metrics = await collect_metrics(pid)
+                
+                # Generate report filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_file = os.path.join(report_dir, f"monitoring_report_{timestamp}.json")
+                
+                # Generate and save report
+                await generate_monitoring_report(metrics, report_file)
+                
+                # Print summary
+                await print_monitoring_summary(metrics)
+                
+                # Wait for next interval
+                time.sleep(interval)
+                
+            except KeyboardInterrupt:
+                print("\nMonitoring stopped by user")
+                break
+                
+    except Exception as e:
+        error_ctx = create_error_context(
+            operation='continuous_monitoring',
+            source='monitoring',
+            additional_info={
+                'pid': pid,
+                'interval': interval,
+                'report_dir': report_dir
+            }
+        )
+        raise MonitoringError(
+            message=f"Continuous monitoring failed: {str(e)}",
+            error_code="MON-CONTINUOUS-FAIL-001",
+            context=error_ctx
+        )
 
 class ServerMetrics:
     """Class to store and manage server metrics"""
@@ -172,6 +424,7 @@ class ServerMetrics:
         }
 
 
+@with_management_error_handling
 def monitor_backend(port: int = DEFAULT_BACKEND_PORT) -> ServerMetrics:
     """
     Monitor the backend server
@@ -182,18 +435,31 @@ def monitor_backend(port: int = DEFAULT_BACKEND_PORT) -> ServerMetrics:
     Returns:
         ServerMetrics: Server metrics object
     """
-    metrics = ServerMetrics("backend")
-    
-    # Update process metrics
-    metrics.update_process_metrics()
-    
-    # Check server health - use the root endpoint directly
-    health_url = f"http://localhost:{port}/"
-    metrics.check_health(health_url)
-    
-    return metrics
+    try:
+        metrics = ServerMetrics("backend")
+        
+        # Update process metrics
+        metrics.update_process_metrics()
+        
+        # Check server health - use the root endpoint directly
+        health_url = f"http://localhost:{port}/"
+        metrics.check_health(health_url)
+        
+        return metrics
+    except Exception as e:
+        error_context = ErrorContext(
+            source="monitor_backend",
+            severity=ErrorSeverity.ERROR,
+            error_id="backend_monitoring_error",
+            additional_data={
+                "error": str(e),
+                "port": port
+            }
+        )
+        raise MonitoringError("Failed to monitor backend server", error_context) from e
 
 
+@with_management_error_handling
 def monitor_frontend(port: int = DEFAULT_FRONTEND_PORT) -> ServerMetrics:
     """
     Monitor the frontend server
@@ -204,18 +470,31 @@ def monitor_frontend(port: int = DEFAULT_FRONTEND_PORT) -> ServerMetrics:
     Returns:
         ServerMetrics: Server metrics object
     """
-    metrics = ServerMetrics("frontend")
-    
-    # Update process metrics
-    metrics.update_process_metrics()
-    
-    # Check server health
-    health_url = f"http://localhost:{port}"
-    metrics.check_health(health_url)
-    
-    return metrics
+    try:
+        metrics = ServerMetrics("frontend")
+        
+        # Update process metrics
+        metrics.update_process_metrics()
+        
+        # Check server health
+        health_url = f"http://localhost:{port}"
+        metrics.check_health(health_url)
+        
+        return metrics
+    except Exception as e:
+        error_context = ErrorContext(
+            source="monitor_frontend",
+            severity=ErrorSeverity.ERROR,
+            error_id="frontend_monitoring_error",
+            additional_data={
+                "error": str(e),
+                "port": port
+            }
+        )
+        raise MonitoringError("Failed to monitor frontend server", error_context) from e
 
 
+@with_management_error_handling
 def check_disk_usage(path: str = ".") -> Dict[str, Union[float, str]]:
     """
     Check disk usage for the given path
@@ -235,12 +514,19 @@ def check_disk_usage(path: str = ".") -> Dict[str, Union[float, str]]:
             "percent_used": usage.percent
         }
     except Exception as e:
-        logger.error(f"Error checking disk usage: {str(e)}")
-        return {
-            "error": str(e)
-        }
+        error_context = ErrorContext(
+            source="check_disk_usage",
+            severity=ErrorSeverity.ERROR,
+            error_id="disk_usage_error",
+            additional_data={
+                "error": str(e),
+                "path": path
+            }
+        )
+        raise MonitoringError("Failed to check disk usage", error_context) from e
 
 
+@with_management_error_handling
 def check_system_resources() -> Dict[str, Any]:
     """
     Check system-wide resource usage
@@ -250,21 +536,40 @@ def check_system_resources() -> Dict[str, Any]:
     """
     try:
         return {
-            "cpu_percent": psutil.cpu_percent(interval=1),
-            "memory_percent": psutil.virtual_memory().percent,
-            "memory_available_gb": round(psutil.virtual_memory().available / (1024**3), 2),
-            "disk_usage": check_disk_usage()
+            "cpu": {
+                "percent": psutil.cpu_percent(interval=1),
+                "count": psutil.cpu_count(),
+                "freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else None
+            },
+            "memory": {
+                "total": round(psutil.virtual_memory().total / (1024**3), 2),  # GB
+                "available": round(psutil.virtual_memory().available / (1024**3), 2),  # GB
+                "percent": psutil.virtual_memory().percent
+            },
+            "disk": check_disk_usage(),
+            "network": {
+                "bytes_sent": psutil.net_io_counters().bytes_sent,
+                "bytes_recv": psutil.net_io_counters().bytes_recv,
+                "packets_sent": psutil.net_io_counters().packets_sent,
+                "packets_recv": psutil.net_io_counters().packets_recv,
+                "errin": psutil.net_io_counters().errin,
+                "errout": psutil.net_io_counters().errout
+            }
         }
     except Exception as e:
-        logger.error(f"Error checking system resources: {str(e)}")
-        return {
-            "error": str(e)
-        }
+        error_context = ErrorContext(
+            source="check_system_resources",
+            severity=ErrorSeverity.ERROR,
+            error_id="system_resources_error",
+            additional_data={"error": str(e)}
+        )
+        raise MonitoringError("Failed to check system resources", error_context) from e
 
 
+@with_management_error_handling
 def analyze_logs(log_file: str, lines: int = 100) -> Dict[str, Any]:
     """
-    Analyze logs to extract error information
+    Analyze the last N lines of a log file
     
     Args:
         log_file: Path to log file
@@ -273,52 +578,68 @@ def analyze_logs(log_file: str, lines: int = 100) -> Dict[str, Any]:
     Returns:
         dict: Dictionary with log analysis information
     """
-    if not os.path.exists(log_file):
-        return {"error": f"Log file not found: {log_file}"}
-    
     try:
-        # Use platform-specific command to get last N lines
-        if platform.system() == "Windows":
-            result = subprocess.run(
-                ["powershell", "-Command", f"Get-Content -Path '{log_file}' -Tail {lines}"], 
-                capture_output=True, 
-                text=True, 
-                check=False
+        if not os.path.exists(log_file):
+            error_context = ErrorContext(
+                source="analyze_logs",
+                severity=ErrorSeverity.ERROR,
+                error_id="log_file_not_found",
+                additional_data={
+                    "log_file": log_file
+                }
             )
-            log_data = result.stdout
-        else:  # Linux/Mac
-            result = subprocess.run(
-                ["tail", f"-{lines}", log_file], 
-                capture_output=True, 
-                text=True, 
-                check=False
-            )
-            log_data = result.stdout
+            raise MonitoringError(f"Log file not found: {log_file}", error_context)
         
-        # Count error levels
-        error_count = log_data.count("ERROR")
-        warning_count = log_data.count("WARNING")
-        info_count = log_data.count("INFO")
+        # Read last N lines
+        with open(log_file, 'r') as f:
+            # Use a list to store lines for analysis
+            log_lines = []
+            for line in f:
+                log_lines.append(line)
+                if len(log_lines) > lines:
+                    log_lines.pop(0)
         
-        # Extract the most recent errors
-        errors = []
-        for line in log_data.splitlines():
+        # Analyze lines
+        error_count = 0
+        warning_count = 0
+        info_count = 0
+        debug_count = 0
+        
+        for line in log_lines:
             if "ERROR" in line:
-                errors.append(line)
-                if len(errors) >= 5:  # Limit to 5 most recent errors
-                    break
+                error_count += 1
+            elif "WARNING" in line:
+                warning_count += 1
+            elif "INFO" in line:
+                info_count += 1
+            elif "DEBUG" in line:
+                debug_count += 1
         
         return {
+            "file": log_file,
+            "lines_analyzed": len(log_lines),
             "error_count": error_count,
             "warning_count": warning_count,
             "info_count": info_count,
-            "recent_errors": errors
+            "debug_count": debug_count,
+            "last_error": next((line for line in reversed(log_lines) if "ERROR" in line), None),
+            "last_warning": next((line for line in reversed(log_lines) if "WARNING" in line), None)
         }
     except Exception as e:
-        logger.error(f"Error analyzing logs: {str(e)}")
-        return {"error": str(e)}
+        error_context = ErrorContext(
+            source="analyze_logs",
+            severity=ErrorSeverity.ERROR,
+            error_id="log_analysis_error",
+            additional_data={
+                "error": str(e),
+                "log_file": log_file,
+                "lines": lines
+            }
+        )
+        raise MonitoringError("Failed to analyze logs", error_context) from e
 
 
+@with_management_error_handling
 def generate_monitoring_report() -> Dict[str, Any]:
     """
     Generate a comprehensive monitoring report
@@ -326,167 +647,122 @@ def generate_monitoring_report() -> Dict[str, Any]:
     Returns:
         dict: Dictionary with monitoring information
     """
-    report = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "system": {
-            "hostname": platform.node(),
-            "os": f"{platform.system()} {platform.release()}",
-            "resources": check_system_resources()
-        },
-        "servers": {
-            "backend": monitor_backend().to_dict(),
-            "frontend": monitor_frontend().to_dict()
-        },
-        "logs": {
-            "app": analyze_logs("logs/app.log"),
-            "management": analyze_logs("logs/management.log"),
+    try:
+        # Monitor servers
+        backend_metrics = monitor_backend()
+        frontend_metrics = monitor_frontend()
+        
+        # Check system resources
+        system_resources = check_system_resources()
+        
+        # Analyze logs
+        log_analysis = {
             "backend": analyze_logs("logs/backend.log"),
-            "frontend": analyze_logs("logs/frontend.log")
+            "frontend": analyze_logs("logs/frontend.log"),
+            "management": analyze_logs("logs/management.log")
         }
-    }
-    
-    return report
+        
+        # Compile report
+        report = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "servers": {
+                "backend": backend_metrics.to_dict(),
+                "frontend": frontend_metrics.to_dict()
+            },
+            "system": system_resources,
+            "logs": log_analysis
+        }
+        
+        return report
+    except Exception as e:
+        error_context = ErrorContext(
+            source="generate_monitoring_report",
+            severity=ErrorSeverity.ERROR,
+            error_id="monitoring_report_error",
+            additional_data={"error": str(e)}
+        )
+        raise MonitoringError("Failed to generate monitoring report", error_context) from e
 
 
+@with_management_error_handling
 def save_monitoring_report(report: Dict[str, Any], output_file: str = "monitoring_report.json") -> str:
     """
     Save monitoring report to a file
     
     Args:
         report: Monitoring report dictionary
-        output_file: File to save the report to
+        output_file: Output file path
         
     Returns:
-        str: Path to the saved report
+        str: Path to saved file
     """
     try:
-        # Ensure the monitoring directory exists
-        os.makedirs("monitoring", exist_ok=True)
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         
-        # Generate a timestamp-based filename if not provided
-        if output_file == "monitoring_report.json":
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"monitoring/report_{timestamp}.json"
-        
-        # Save the report
+        # Save report
         with open(output_file, 'w') as f:
             json.dump(report, f, indent=2)
-            
-        logger.info(f"Monitoring report saved to {output_file}")
+        
         return output_file
     except Exception as e:
-        logger.error(f"Error saving monitoring report: {str(e)}")
-        return ""
+        error_context = ErrorContext(
+            source="save_monitoring_report",
+            severity=ErrorSeverity.ERROR,
+            error_id="report_save_error",
+            additional_data={
+                "error": str(e),
+                "output_file": output_file
+            }
+        )
+        raise MonitoringError("Failed to save monitoring report", error_context) from e
 
 
+@with_management_error_handling
 def print_monitoring_summary(report: Dict[str, Any]) -> None:
     """
-    Print a summary of the monitoring report to the console
+    Print a human-readable summary of the monitoring report
     
     Args:
         report: Monitoring report dictionary
     """
-    print("\n===== MONITORING SUMMARY =====")
-    print(f"Time: {report['timestamp']}")
-    print(f"System: {report['system']['hostname']} ({report['system']['os']})")
-    
-    print("\n--- SERVERS ---")
-    
-    # Backend server
-    backend = report['servers']['backend']
-    print(f"Backend: {backend['status']} (PID: {backend['pid']})")
-    print(f"  Uptime: {backend['uptime']}")
-    print(f"  CPU: {backend['avg_cpu_percent']}%, Memory: {backend['avg_memory_mb']} MB")
-    print(f"  Response Time: {backend['avg_response_ms']} ms")
-    
-    # Frontend server
-    frontend = report['servers']['frontend']
-    print(f"Frontend: {frontend['status']} (PID: {frontend['pid']})")
-    print(f"  Uptime: {frontend['uptime']}")
-    print(f"  CPU: {frontend['avg_cpu_percent']}%, Memory: {frontend['avg_memory_mb']} MB")
-    print(f"  Response Time: {frontend['avg_response_ms']} ms")
-    
-    print("\n--- SYSTEM RESOURCES ---")
-    resources = report['system']['resources']
-    print(f"CPU: {resources['cpu_percent']}%")
-    print(f"Memory: {resources['memory_percent']}% (Available: {resources['memory_available_gb']} GB)")
-    disk = resources['disk_usage']
-    print(f"Disk: {disk['percent_used']}% used ({disk['used_gb']} GB / {disk['total_gb']} GB)")
-    
-    print("\n--- LOGS SUMMARY ---")
-    for log_name, log_data in report['logs'].items():
-        if "error" in log_data:
-            print(f"{log_name}: Error - {log_data['error']}")
-        else:
-            print(f"{log_name}: {log_data['error_count']} errors, {log_data['warning_count']} warnings")
-    
-    # Alert on issues
-    print("\n--- ALERTS ---")
-    alerts = []
-    
-    # Check server status
-    if backend['status'] != "Healthy" and backend['status'] != "Running":
-        alerts.append(f"Backend server is {backend['status']}")
-    if frontend['status'] != "Healthy" and frontend['status'] != "Running":
-        alerts.append(f"Frontend server is {frontend['status']}")
-    
-    # Check response times
-    if backend['avg_response_ms'] > RESPONSE_TIME_THRESHOLD:
-        alerts.append(f"Backend response time is high: {backend['avg_response_ms']} ms")
-    
-    # Check error counts
-    for log_name, log_data in report['logs'].items():
-        if "error_count" in log_data and log_data['error_count'] >= ERROR_THRESHOLD:
-            alerts.append(f"{log_name} log has {log_data['error_count']} errors")
-    
-    # Display alerts or all-clear
-    if alerts:
-        for alert in alerts:
-            print(f"⚠️ ALERT: {alert}")
-    else:
-        print("✅ All systems operating normally")
-    
-    print("\n===============================")
-
-
-def continuous_monitoring(interval: int = 60, duration: int = 0, save_reports: bool = True) -> None:
-    """
-    Run continuous monitoring with a specified interval
-    
-    Args:
-        interval: Time between checks in seconds
-        duration: Total monitoring duration in seconds (0 for infinite)
-        save_reports: Whether to save reports to disk
-    """
-    start_time = time.time()
-    count = 0
-    
     try:
-        while True:
-            count += 1
-            current_time = time.time()
-            elapsed = current_time - start_time
-            
-            # Generate and display report
-            logger.info(f"Running monitoring check #{count} (elapsed: {int(elapsed)}s)")
-            report = generate_monitoring_report()
-            print_monitoring_summary(report)
-            
-            # Save report if requested
-            if save_reports:
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = f"monitoring/report_{timestamp}.json"
-                save_monitoring_report(report, output_file)
-            
-            # Check if we've hit the duration limit
-            if duration > 0 and elapsed >= duration:
-                logger.info(f"Monitoring completed after {int(elapsed)} seconds ({count} checks)")
-                break
-                
-            # Sleep until next check
-            logger.info(f"Next check in {interval} seconds. Press Ctrl+C to stop monitoring.")
-            time.sleep(interval)
-            
-    except KeyboardInterrupt:
-        logger.info(f"Monitoring stopped by user after {int(time.time() - start_time)} seconds ({count} checks)")
-        print("\nMonitoring stopped by user.") 
+        print("\n=== Monitoring Report Summary ===")
+        print(f"Generated at: {report['timestamp']}\n")
+        
+        # Server status
+        print("Server Status:")
+        for server_type, metrics in report['servers'].items():
+            print(f"  {server_type.title()}:")
+            print(f"    Status: {metrics['status']}")
+            print(f"    PID: {metrics['pid']}")
+            print(f"    Uptime: {metrics['uptime']}")
+            print(f"    CPU Usage: {metrics['avg_cpu_percent']}%")
+            print(f"    Memory Usage: {metrics['avg_memory_mb']} MB")
+            print(f"    Response Time: {metrics['avg_response_ms']} ms")
+            print(f"    Error Count: {metrics['error_count']}")
+        
+        # System resources
+        print("\nSystem Resources:")
+        print(f"  CPU Usage: {report['system']['cpu']['percent']}%")
+        print(f"  Memory Usage: {report['system']['memory']['percent']}%")
+        print(f"  Disk Usage: {report['system']['disk']['percent_used']}%")
+        
+        # Log summary
+        print("\nLog Summary:")
+        for log_type, analysis in report['logs'].items():
+            print(f"  {log_type.title()}:")
+            print(f"    Errors: {analysis['error_count']}")
+            print(f"    Warnings: {analysis['warning_count']}")
+            if analysis['last_error']:
+                print(f"    Last Error: {analysis['last_error'].strip()}")
+    except Exception as e:
+        error_context = ErrorContext(
+            source="print_monitoring_summary",
+            severity=ErrorSeverity.ERROR,
+            error_id="summary_print_error",
+            additional_data={"error": str(e)}
+        )
+        raise MonitoringError("Failed to print monitoring summary", error_context) from e 
